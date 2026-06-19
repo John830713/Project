@@ -49,14 +49,29 @@ ifneq ($(strip $(GENERATED_ICON_OBJ)),)
 ALL_OBJS += $(GENERATED_ICON_OBJ)
 endif
 
+TRANSLATION_OUT = Translation/zh-TW.ini
+ifneq ($(wildcard Translation/_src/zh-TW.ini),)
+ifneq ($(wildcard $(TRANSLATION_OUT)),)
+TRANSLATION_DEPS = Translation/_src/zh-TW.ini $(wildcard Pet/lang/zh-TW.ini) $(wildcard Modules/*/lang/zh-TW.ini)
+else
+$(info $(TRANSLATION_OUT) missing, running Build.py...)
+DUMMY2 := $(shell py Build.py)
+endif
+endif
+
 DEPS = $(CPP_OBJS:.o=.d)
 
-.PHONY: all clean rebuild
+.PHONY: all clean rebuild distclean
 
 all: $(TARGET)
 
 $(TARGET): $(ALL_OBJS)
 	$(CXX) $(CXXFLAGS) $(ALL_OBJS) -o $(TARGET) $(LIBS) $(LIBS_EXTRA)
+
+ifneq ($(TRANSLATION_DEPS),)
+$(TRANSLATION_OUT): $(TRANSLATION_DEPS)
+	py Build.py
+endif
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -72,3 +87,11 @@ clean:
 	-@for %%f in ($(DEPS)) do del /f "%%f" 2>nul
 
 rebuild: clean all
+
+distclean: clean
+	-@del /f "GeneratedBuild.mk" 2>nul
+	-@del /f "GeneratedIcon.ico" 2>nul
+	-@del /f "GeneratedIcon.rc" 2>nul
+	-@del /f "GeneratedIcon.o" 2>nul
+	-@del /f "Translation/zh-TW.ini" 2>nul
+	-@del /f "Build.log" 2>nul
