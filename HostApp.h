@@ -29,6 +29,7 @@ public:
 
 private:
     std::wstring LoadProjectTitle() const;
+    std::wstring LoadHostHint() const;
     std::wstring LoadAppVersion() const;
     std::wstring ReadTextFileIfExists(const wchar_t* fileName) const;
     std::wstring GetBaseDirName() const;

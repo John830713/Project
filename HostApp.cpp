@@ -3,6 +3,7 @@
 #include "Pet/MainWindow.h"
 #include "Core/Logger.h"
 #include "Core/ConfigManager.h"
+#include "GeneratedModuleRegistry.h"
 
 #include <filesystem>
 #include <fstream>
@@ -21,6 +22,7 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
     Logger::Write(L"Main", L"Host application initialization started.");
 
     std::wstring projectTitle = LoadProjectTitle();
+    std::wstring hostHint = LoadHostHint();
     std::wstring appVersion = LoadAppVersion();
 
     m_window = new MainWindow();
@@ -32,11 +34,17 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
             &m_inputManager,
             m_mainWindow,
             projectTitle,
-            L"",
+            hostHint,
             appVersion)) {
         Logger::Write(L"Error", L"Failed to create main window.");
         return false;
     }
+
+    RegisterGeneratedModules(m_moduleManager);
+
+    m_moduleManager.InitializeModules(hInstance, this);
+    m_moduleManager.LoadAllConfigs();
+    m_moduleManager.ApplyAllConfigs();
 
     Logger::Write(L"Main", L"Host application initialization completed.");
     return true;
@@ -85,6 +93,12 @@ std::wstring HostApp::LoadProjectTitle() const {
     std::wstring text = ReadTextFileIfExists(L"ProjectName.txt");
     if (!text.empty()) return text;
     return GetBaseDirName();
+}
+
+std::wstring HostApp::LoadHostHint() const {
+    std::wstring text = ReadTextFileIfExists(L"HostHint.txt");
+    if (!text.empty()) return text;
+    return L"Drag supported files onto this window.";
 }
 
 std::wstring HostApp::LoadAppVersion() const {

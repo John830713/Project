@@ -1,0 +1,33 @@
+//==============================================================================
+// Modules Layer - Design Overview
+//==============================================================================
+
+Purpose:
+  Concrete feature modules, each is an independent functional unit.
+
+Structure:
+  Modules/<ModuleName>/
+      <ModuleName>Module.h/.cpp   - Module body (implements IFeatureModule)
+      <ModuleName>Window.h/.cpp   - Custom tool window (optional)
+      <ModuleName>.module.ini     - Module metadata (required)
+      <ModuleName>.rc             - Module resources (optional)
+
+Module Metadata (<ModuleName>.module.ini):
+  [Module]
+  Name=ModuleName
+  Sources=ModuleName.cpp
+  Headers=ModuleName.h
+  Resources=
+  Libraries=
+  Enabled=1
+
+Rules:
+   1. Every module must fully implement IFeatureModule.
+   2. For drag-drop support, additionally implement IDropActionProvider.
+   3. For right-click menu items, override GetContextMenuItems() / ExecuteContextMenuItem() from IFeatureModule (default: empty, auto-dispatched by ModuleManager; items are nested under the "Function" submenu).
+   4. For custom input, additionally implement IInputHandler.
+   5. For About dialog, override GetVersion() / GetPurpose() from IFeatureModule (defaults: "1.0.0" / ""; shown in separator-separated list in About dialog).
+   6. Modules communicate with host via IHostContext, NOT a concrete HostApp class.
+   7. Settings accessed via GetValue/SetValue, persisted by ConfigManager.
+   8. Config fields (GetConfigDefinitions) are automatically exposed in the Settings dialog; each module gets a tab. Bool→checkbox, Int/String→edit box.
+   9. Build script auto-scans *.module.ini; no manual Makefile editing needed.
