@@ -1,0 +1,28 @@
+# Auto-generated build files
+GeneratedBuild.mk
+GeneratedIcon.*
+GeneratedModuleRegistry.*
+Build.log
+
+# Auto-generated translation
+Translation/*.ini
+!Translation/_src/*.ini
+!Translation/en.ini
+
+# Binary outputs
+*.exe
+*.o
+*.d
+
+# User config (local only)
+Config/*.ini
+
+# Logs
+Log/
+
+# User-specific
+MakePath.txt
+ProjectName.txt
+HostHint.txt
+Version.txt
+TargetName.txt
