@@ -13,7 +13,10 @@ CPP_OBJS = \
 	Services/ChecksumService.o \
 	Services/ClipboardService.o \
 	Services/FileService.o \
-	Services/TranslationService.o
+	Services/TranslationService.o \
+	Pet/MainWindow.o \
+	Pet/PetConfig.o \
+	UI/SettingsDialog.o
 
 all: $(TARGET)
 

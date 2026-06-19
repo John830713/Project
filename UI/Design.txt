@@ -1,0 +1,25 @@
+//==============================================================================
+// UI Layer - Design Overview
+//==============================================================================
+
+Purpose:
+  Shared UI components for the desktop pet host. Contains the settings dialog
+  used by both pet config and module config.
+
+Contents:
+  SettingsDialog     - Modal settings window with "Pet" tab (first) and
+                       per-module tabs; reads/writes config fields via
+                       IFeatureModule::GetValue/SetValue and PetConfig, with
+                       scroll support.
+
+Rules:
+   1. SettingsDialog opens as a modal window; Pet tab is always tab 0,
+      module tabs follow at index 1..N.
+   2. Each module's config fields are editable in a dedicated tab. If fields
+      exceed visible area, vertical scrollbar appears.
+   3. On Save: reads all controls → saves PetConfig → calls module->SetValue()
+      for each module → ModuleManager::SaveAllConfigs() → ApplyAllConfigs().
+      On Cancel: discards changes.
+   4. Missing config keys are auto-filled with defaults by
+      ConfigManager::EnsureModuleConfig() during LoadModuleConfig().
+      Existing keys are never overwritten.

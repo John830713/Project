@@ -8,6 +8,8 @@
 #include <windows.h>
 #include <string>
 
+class MainWindow;
+
 class HostApp : public IHostContext {
 public:
     HostApp();
@@ -26,8 +28,15 @@ public:
     InputManager& GetInputManager();
 
 private:
+    std::wstring LoadProjectTitle() const;
+    std::wstring LoadAppVersion() const;
+    std::wstring ReadTextFileIfExists(const wchar_t* fileName) const;
+    std::wstring GetBaseDirName() const;
+
+private:
     HINSTANCE m_hInstance = nullptr;
     HWND m_mainWindow = nullptr;
+    MainWindow* m_window = nullptr;
     ModuleManager m_moduleManager;
     InputManager m_inputManager;
 };
