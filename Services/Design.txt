@@ -1,0 +1,36 @@
+//==============================================================================
+// Services Layer - Design Overview
+//==============================================================================
+
+Purpose:
+  Provides reusable technical services so modules don't duplicate common logic.
+
+Contents:
+  FileService        - Binary file read/write, file existence/size checks, extension matching
+  ChecksumService    - File checksum calculation (simple additive algorithm)
+  ClipboardService   - Clipboard text copy (CF_UNICODETEXT)
+  TranslationService - Singleton i18n service; loads INI language files
+                       with English text as key. Tr(section, key) returns
+                       translated text or falls back to English.
+
+Language System:
+  - English text IS the key; no separate key IDs to maintain.
+  - Load("en") returns keys directly; no file needed.
+  - Translation files merged at BUILD time by Build.py
+    (same pattern as GeneratedModuleRegistry).
+    Source:  Translation/_src/{lang}.ini  (core translations)
+             Modules/{Name}/lang/{lang}.ini  (per-module translations)
+    Output:  Translation/{lang}.ini (single merged file, UTF-16 LE)
+  - To add a new language: create Translation/_src/{lang}.ini
+    and Modules/*/lang/{lang}.ini as needed; Build.py handles merge.
+  - To add a new module: create Modules/{Name}/lang/{lang}.ini
+    with the module's own translation entries; Build.py picks it up.
+  - If a key is missing from the lang file, Tr() falls back
+    to the English key text (graceful degradation).
+  - Run Build.py (or py Build.py) before compiling; output file
+    is also deletable by Clear2.bat and regenerated on next build.
+
+Rules:
+  1. Services layer must NOT depend on any module.
+  2. Modules focus on feature logic; shared technical details live in services.
+  3. Services are typically stateless static methods, but may hold state if needed.

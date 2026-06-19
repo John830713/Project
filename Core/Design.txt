@@ -1,0 +1,27 @@
+//==============================================================================
+// Core Layer - Design Overview
+//==============================================================================
+
+Purpose:
+  Project-wide shared infrastructure. All upper layers depend on this.
+
+Contents:
+  ConfigManager      - Config path management, INI read/write, missing-key fill (no overwrite)
+  ConfigTypes        - ConfigFieldDefinition and ConfigValueType definitions
+  Logger             - Categorized logs + per-module log writing
+   ModuleManager      - Module registration, lifecycle management, drop/context-menu dispatch,
+                        GetAllModules() accessor for About dialog enumeration
+   IFeatureModule     - Standard interface that all modules must implement; includes optional
+                        GetContextMenuItems()/ExecuteContextMenuItem() virtual methods,
+                        plus GetVersion()/GetPurpose() for the About dialog
+  IHostContext       - Generic host context abstraction (HINSTANCE + HWND)
+  IDropActionProvider - Drop action provider interface (optional)
+  IInputHandler      - Input handling interface (optional)
+  InputManager       - Centralized input dispatch (optional)
+  DropTypes          - DropContext / DropActionDefinition shared types
+  ContextMenuItem    - Shared struct (defined in IFeatureModule.h) for right-click menu items
+
+Rules:
+  1. Core layer must NOT depend on any specific feature module.
+  2. All interfaces must stay project-neutral and reusable across projects.
+  3. Init order: Logger -> ConfigManager -> ModuleManager -> InputManager.

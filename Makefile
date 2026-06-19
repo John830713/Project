@@ -3,7 +3,17 @@ CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -munic
 LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -mwindows
 
 TARGET = Project.exe
-CPP_OBJS = main.o HostApp.o
+CPP_OBJS = \
+	main.o \
+	HostApp.o \
+	Core/ConfigManager.o \
+	Core/InputManager.o \
+	Core/Logger.o \
+	Core/ModuleManager.o \
+	Services/ChecksumService.o \
+	Services/ClipboardService.o \
+	Services/FileService.o \
+	Services/TranslationService.o
 
 all: $(TARGET)
 
