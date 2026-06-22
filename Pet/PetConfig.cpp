@@ -1,49 +1,35 @@
 #include "PetConfig.h"
+#include "../Core/ConfigManager.h"
 #include <windows.h>
-
-static std::wstring GetFilePath() {
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-    std::wstring dir = exePath;
-    auto pos = dir.rfind(L'\\');
-    if (pos != std::wstring::npos) dir = dir.substr(0, pos);
-    return dir + L"\\Config\\Config_Pet.ini";
-}
 
 PetConfig::Data PetConfig::Load() {
     Data data;
-    auto path = GetFilePath();
-    data.posX = GetPrivateProfileIntW(L"Pet", L"posX", -1, path.c_str());
-    data.posY = GetPrivateProfileIntW(L"Pet", L"posY", -1, path.c_str());
-    data.opacity = static_cast<int>(GetPrivateProfileIntW(L"Pet", L"opacity", 255, path.c_str()));
-    data.alwaysOnTop = GetPrivateProfileIntW(L"Pet", L"alwaysOnTop", 1, path.c_str()) != 0;
-    data.moveEnabled = GetPrivateProfileIntW(L"Pet", L"moveEnabled", 0, path.c_str()) != 0;
-    data.moveStep = static_cast<int>(GetPrivateProfileIntW(L"Pet", L"moveStep", 3, path.c_str()));
-    data.moveSpeed = static_cast<int>(GetPrivateProfileIntW(L"Pet", L"moveSpeed", 200, path.c_str()));
-    data.moveShuttle = GetPrivateProfileIntW(L"Pet", L"moveShuttle", 0, path.c_str()) != 0;
-    wchar_t langBuf[32] = {};
-    GetPrivateProfileStringW(L"Pet", L"language", L"en", langBuf, 32, path.c_str());
-    data.language = langBuf;
+    auto values = ConfigManager::LoadModuleConfig(L"Config_Pet.ini", L"Pet", GetDefinitions());
+
+    data.posX = std::stoi(values[L"posX"]);
+    data.posY = std::stoi(values[L"posY"]);
+    data.opacity = std::stoi(values[L"opacity"]);
+    data.alwaysOnTop = values[L"alwaysOnTop"] == L"1";
+    data.moveEnabled = values[L"moveEnabled"] == L"1";
+    data.moveStep = std::stoi(values[L"moveStep"]);
+    data.moveSpeed = std::stoi(values[L"moveSpeed"]);
+    data.moveShuttle = values[L"moveShuttle"] == L"1";
+    data.language = values[L"language"];
     return data;
 }
 
 void PetConfig::Save(const Data& data) {
-    auto path = GetFilePath();
-    wchar_t buf[32];
-    swprintf(buf, 32, L"%d", data.posX);
-    WritePrivateProfileStringW(L"Pet", L"posX", buf, path.c_str());
-    swprintf(buf, 32, L"%d", data.posY);
-    WritePrivateProfileStringW(L"Pet", L"posY", buf, path.c_str());
-    swprintf(buf, 32, L"%d", data.opacity);
-    WritePrivateProfileStringW(L"Pet", L"opacity", buf, path.c_str());
-    WritePrivateProfileStringW(L"Pet", L"alwaysOnTop", data.alwaysOnTop ? L"1" : L"0", path.c_str());
-    WritePrivateProfileStringW(L"Pet", L"moveEnabled", data.moveEnabled ? L"1" : L"0", path.c_str());
-    swprintf(buf, 32, L"%d", data.moveStep);
-    WritePrivateProfileStringW(L"Pet", L"moveStep", buf, path.c_str());
-    swprintf(buf, 32, L"%d", data.moveSpeed);
-    WritePrivateProfileStringW(L"Pet", L"moveSpeed", buf, path.c_str());
-    WritePrivateProfileStringW(L"Pet", L"moveShuttle", data.moveShuttle ? L"1" : L"0", path.c_str());
-    WritePrivateProfileStringW(L"Pet", L"language", data.language.c_str(), path.c_str());
+    std::map<std::wstring, std::wstring> values;
+    values[L"posX"] = std::to_wstring(data.posX);
+    values[L"posY"] = std::to_wstring(data.posY);
+    values[L"opacity"] = std::to_wstring(data.opacity);
+    values[L"alwaysOnTop"] = data.alwaysOnTop ? L"1" : L"0";
+    values[L"moveEnabled"] = data.moveEnabled ? L"1" : L"0";
+    values[L"moveStep"] = std::to_wstring(data.moveStep);
+    values[L"moveSpeed"] = std::to_wstring(data.moveSpeed);
+    values[L"moveShuttle"] = data.moveShuttle ? L"1" : L"0";
+    values[L"language"] = data.language;
+    ConfigManager::SaveModuleConfig(L"Config_Pet.ini", L"Pet", values);
 }
 
 std::vector<ConfigFieldDefinition> PetConfig::GetDefinitions() {

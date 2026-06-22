@@ -26,7 +26,7 @@ public:
     const wchar_t* GetVersion() const override { return L"1.0.0"; }
     const wchar_t* GetPurpose() const override { return L"Patches an EC binary into a BIOS ROM at a configurable offset."; }
     const wchar_t* GetConfigFileName() const override { return L"Config_ChangeEC.ini"; }
-    const wchar_t* GetConfigSectionName() const override { return L"Settings"; }
+    const wchar_t* GetConfigSectionName() const override { return L"ChangeEC"; }
     const wchar_t* GetLogSourceName() const override { return L"ChangeEC"; }
     
     const std::vector<ConfigFieldDefinition>& GetConfigDefinitions() const override;
