@@ -3,6 +3,7 @@
 //==============================================================================
 
 #include "HostApp.h"
+#include "Core/DebugConsole.h"
 
 //==============================================================================
 // wWinMain - Windows Unicode entry point
@@ -11,6 +12,8 @@
 //==============================================================================
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    DBG_OPEN();
+    DBG(L"Application started");
     HostApp app;
     if (!app.Initialize(hInstance, nCmdShow)) {
         return 1;

@@ -1,6 +1,7 @@
 #include "AutoKeyModule.h"
 #include "AutoKeyDialog.h"
 #include "../../Core/ConfigManager.h"
+#include "../../Core/DebugConsole.h"
 #include "../../Core/Logger.h"
 #include "../../Services/TranslationService.h"
 
@@ -414,6 +415,7 @@ bool AutoKeyModule::IsActionRunning(int actionId) const {
 //==============================================================================
 
 std::vector<ContextMenuItem> AutoKeyModule::GetContextMenuItems() const {
+    DBG(L"AutoKeyModule::GetContextMenuItems");
     std::vector<ContextMenuItem> items;
 
     bool anyRunning = false;
@@ -422,14 +424,20 @@ std::vector<ContextMenuItem> AutoKeyModule::GetContextMenuItems() const {
     }
 
     if (anyRunning) {
-        items.push_back({ kMenuStopAll, TranslationService::Get()->Tr(L"AutoKey", L"■ Stop All") });
+        auto label = TranslationService::Get()->Tr(L"AutoKey", L"■ Stop All");
+        DBG(L"  StopAll label='%s'", label.c_str());
+        items.push_back({ kMenuStopAll, label });
     }
 
     for (const auto& a : m_actions) {
         if (a.running != 0) {
-            items.push_back({ kMenuStopBase + a.id, TranslationService::Get()->Tr(L"AutoKey", L"■ Stop ") + a.name });
+            auto label = TranslationService::Get()->Tr(L"AutoKey", L"■ Stop") + L" " + a.name;
+            DBG(L"  Stop label='%s'", label.c_str());
+            items.push_back({ kMenuStopBase + a.id, label });
         } else {
-            items.push_back({ kMenuStartBase + a.id, TranslationService::Get()->Tr(L"AutoKey", L"▶ Start ") + a.name });
+            auto label = TranslationService::Get()->Tr(L"AutoKey", L"▶ Start") + L" " + a.name;
+            DBG(L"  Start label='%s'", label.c_str());
+            items.push_back({ kMenuStartBase + a.id, label });
         }
     }
 

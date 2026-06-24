@@ -1,4 +1,5 @@
 #include "TranslationService.h"
+#include "../Core/DebugConsole.h"
 #include <windows.h>
 #include <algorithm>
 #include <cstdint>
@@ -111,9 +112,15 @@ TranslationService* TranslationService::Get() {
 bool TranslationService::Load(const std::wstring& langCode) {
     m_strings.clear();
     m_currentLang = langCode;
-    if (langCode == L"en") return true;
+    DBG(L"TranslationService::Load lang=%s", langCode.c_str());
+    if (langCode == L"en") { DBG(L"  -> en, returning early"); return true; }
 
-    return LoadFromResource(langCode);
+    bool ok = LoadFromResource(langCode);
+    DBG(L"  -> LoadFromResource returned %d, sectionCount=%zu", ok ? 1 : 0, m_strings.size());
+    for (auto& kv : m_strings) {
+        DBG(L"  section [%s] has %zu keys", kv.first.c_str(), kv.second.size());
+    }
+    return ok;
 }
 
 bool TranslationService::SetLanguage(const std::wstring& langCode) {
@@ -121,11 +128,22 @@ bool TranslationService::SetLanguage(const std::wstring& langCode) {
 }
 
 std::wstring TranslationService::Tr(const std::wstring& section, const std::wstring& text) const {
-    if (m_currentLang == L"en") return text;
+    DBG(L"Tr(section='%s', key='%s') currentLang='%s'", section.c_str(), text.c_str(), m_currentLang.c_str());
+    if (m_currentLang == L"en") {
+        DBG(L"  -> lang=en, return key unchanged");
+        return text;
+    }
     auto secIt = m_strings.find(section);
-    if (secIt == m_strings.end()) return text;
+    if (secIt == m_strings.end()) {
+        DBG(L"  -> section '%s' NOT FOUND", section.c_str());
+        return text;
+    }
     auto keyIt = secIt->second.find(text);
-    if (keyIt == secIt->second.end()) return text;
+    if (keyIt == secIt->second.end()) {
+        DBG(L"  -> key '%s' NOT FOUND in section '%s'", text.c_str(), section.c_str());
+        return text;
+    }
+    DBG(L"  -> found: '%s'", keyIt->second.c_str());
     return keyIt->second;
 }
 
