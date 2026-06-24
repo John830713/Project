@@ -73,6 +73,8 @@ $(TRANSLATION_OUT): $(TRANSLATION_DEPS)
 	py Build.py
 endif
 
+TranslationRes.o: $(TRANSLATION_OUT)
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
