@@ -2,6 +2,7 @@
 #include "../Core/ModuleManager.h"
 #include "../Core/IFeatureModule.h"
 #include "../Core/Logger.h"
+#include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
 
 #include <algorithm>
@@ -112,6 +113,7 @@ LRESULT CALLBACK SettingsDialog::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
 LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE: {
+        DBG(L"SettingsDialog WM_CREATE");
         m_hwnd = hwnd;
         NONCLIENTMETRICSW ncm = { sizeof(ncm) };
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
@@ -191,6 +193,22 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         UINT id = LOWORD(wParam);
         if (id == 1) { OnSave(hwnd); return 0; }
         if (id == 2) { OnCancel(hwnd); return 0; }
+        if (id == 1000) {
+            DBG(L"SettingsDialog WM_COMMAND 1000 (Manage)");
+            ReadFieldsFromControls();
+            if (m_currentTab > 0) {
+                DBG(L"  currentTab=%d module=%s",
+                    m_currentTab, m_modules[m_currentTab - 1]->GetModuleName());
+                m_modules[m_currentTab - 1]->OpenCustomSettings(hwnd);
+                DBG(L"  OpenCustomSettings returned, fieldControls=%zu", m_fieldControls.size());
+                for (size_t _i = 0; _i < m_fieldControls.size(); ++_i) {
+                    DBG(L"    ctrl[%zu] hwnd=%p visible=%d",
+                        _i, (void*)m_fieldControls[_i],
+                        IsWindowVisible(m_fieldControls[_i]) ? 1 : 0);
+                }
+            }
+            return 0;
+        }
         break;
     }
 
@@ -237,6 +255,7 @@ void SettingsDialog::SetupTabs(HWND hwnd) {
 }
 
 void SettingsDialog::OnTabChanged(HWND hwnd) {
+    DBG(L"OnTabChanged: old tab=%d", m_currentTab);
     ReadFieldsFromControls();
 
     for (auto h : m_fieldLabels) if (IsWindow(h)) DestroyWindow(h);
@@ -249,6 +268,7 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
 
     int sel = TabCtrl_GetCurSel(m_hTab);
     int tabCount = 1 + (int)m_modules.size();
+    DBG(L"  new sel=%d tabCount=%d", sel, tabCount);
     if (sel >= 0 && sel < tabCount) {
         m_currentTab = sel;
         PopulateFields(hwnd);
@@ -257,7 +277,11 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
 
 void SettingsDialog::PopulateFields(HWND hwnd) {
     int tabCount = 1 + (int)m_modules.size();
-    if (m_currentTab < 0 || m_currentTab >= tabCount) return;
+    DBG(L"PopulateFields: currentTab=%d tabCount=%d", m_currentTab, tabCount);
+    if (m_currentTab < 0 || m_currentTab >= tabCount) {
+        DBG(L"  EARLY RETURN (invalid tab)");
+        return;
+    }
 
     std::vector<ConfigFieldDefinition> defs;
     std::map<std::wstring, std::wstring>* values = nullptr;
@@ -348,6 +372,28 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
         }
     }
 
+    // Custom controls for modules with custom settings UI
+    if (m_currentTab > 0) {
+        auto* mod = m_modules[m_currentTab - 1];
+        if (mod->HasCustomSettings()) {
+            int btnY = FIELD_START_Y + static_cast<int>(defs.size()) * FIELD_SPACING + 10;
+            HWND hBtn = CreateWindowW(L"BUTTON",
+                TranslationService::Get()->Tr(L"Settings", L"Manage Actions...").c_str(),
+                WS_CHILD | WS_VISIBLE,
+                MARGIN, btnY, 160, 28,
+                hwnd, (HMENU)1000, GetModuleHandleW(nullptr), nullptr);
+            DBG(L"PopulateFields: created Manage btn hwnd=%p at y=%d", (void*)hBtn, btnY);
+            if (m_hFont && hBtn) SendMessageW(hBtn, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+            if (hBtn) {
+                m_fieldControls.push_back(hBtn);
+                m_controlKeys[hBtn] = L"__MANAGE_ACTIONS__";
+                m_controlTypes[hBtn] = ConfigValueType::Bool;
+            } else {
+                DBG(L"  FAILED to create button!");
+            }
+        }
+    }
+
     m_scrollPos = 0;
     UpdateScrollBar();
     RepositionFields();
@@ -405,6 +451,8 @@ void SettingsDialog::RepositionFields() {
     if (m_fieldControls.size() > total) total = m_fieldControls.size();
 
     int baseY = FIELD_START_Y - m_scrollPos;
+    DBG(L"RepositionFields: fieldCtrls=%zu fieldLabels=%zu scroll=%d baseY=%d",
+        m_fieldControls.size(), m_fieldLabels.size(), m_scrollPos, baseY);
 
     for (size_t i = 0; i < m_fieldLabels.size(); ++i) {
         HWND h = m_fieldLabels[i];

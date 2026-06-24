@@ -55,4 +55,8 @@ public:
     //--- Context menu (optional, override to provide right-click items) ---
     virtual std::vector<ContextMenuItem> GetContextMenuItems() const { return {}; }
     virtual void ExecuteContextMenuItem(int /*itemId*/) {}
+
+    //--- Custom settings UI (optional) ---
+    virtual bool HasCustomSettings() const { return false; }
+    virtual void OpenCustomSettings(HWND /*parent*/) {}
 };
