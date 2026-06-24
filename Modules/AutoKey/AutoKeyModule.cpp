@@ -2,6 +2,7 @@
 #include "AutoKeyDialog.h"
 #include "../../Core/ConfigManager.h"
 #include "../../Core/Logger.h"
+#include "../../Services/TranslationService.h"
 
 //==============================================================================
 // Constructor / Configuration
@@ -421,14 +422,14 @@ std::vector<ContextMenuItem> AutoKeyModule::GetContextMenuItems() const {
     }
 
     if (anyRunning) {
-        items.push_back({ kMenuStopAll, L"■ Stop All" });
+        items.push_back({ kMenuStopAll, TranslationService::Get()->Tr(L"AutoKey", L"■ Stop All") });
     }
 
     for (const auto& a : m_actions) {
         if (a.running != 0) {
-            items.push_back({ kMenuStopBase + a.id, L"■ Stop " + a.name });
+            items.push_back({ kMenuStopBase + a.id, TranslationService::Get()->Tr(L"AutoKey", L"■ Stop ") + a.name });
         } else {
-            items.push_back({ kMenuStartBase + a.id, L"▶ Start " + a.name });
+            items.push_back({ kMenuStartBase + a.id, TranslationService::Get()->Tr(L"AutoKey", L"▶ Start ") + a.name });
         }
     }
 

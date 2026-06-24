@@ -41,7 +41,7 @@ AutoKeyDialog::AutoKeyDialog(HWND parent, AutoKeyModule* module)
     RegisterClassW(&wc);
 
     m_hwnd = CreateWindowExW(0, kClass,
-        L"Manage AutoKey Actions",
+        TranslationService::Get()->Tr(L"AutoKey", L"Manage AutoKey Actions").c_str(),
         WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE,
         CW_USEDEFAULT, CW_USEDEFAULT, 460, 380,
         parent, nullptr, GetModuleHandleW(nullptr), this);
@@ -105,6 +105,10 @@ LRESULT AutoKeyDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
 }
 
 void AutoKeyDialog::OnCreate(HWND hwnd) {
+    auto Tr = [](const wchar_t* text) {
+        return TranslationService::Get()->Tr(L"AutoKey", text);
+    };
+
     const int MARGIN = 10;
     RECT rc;
     GetClientRect(hwnd, &rc);
@@ -121,22 +125,22 @@ void AutoKeyDialog::OnCreate(HWND hwnd) {
     int btnH = 26;
     int gap = 10;
 
-    CreateWindowW(L"BUTTON", L"Add",
+    CreateWindowW(L"BUTTON", Tr(L"Add").c_str(),
         WS_CHILD | WS_VISIBLE,
         MARGIN, btnY, btnW, btnH,
         hwnd, (HMENU)100, GetModuleHandleW(nullptr), nullptr);
 
-    CreateWindowW(L"BUTTON", L"Edit",
+    CreateWindowW(L"BUTTON", Tr(L"Edit").c_str(),
         WS_CHILD | WS_VISIBLE,
         MARGIN + btnW + gap, btnY, btnW, btnH,
         hwnd, (HMENU)101, GetModuleHandleW(nullptr), nullptr);
 
-    CreateWindowW(L"BUTTON", L"Delete",
+    CreateWindowW(L"BUTTON", Tr(L"Delete").c_str(),
         WS_CHILD | WS_VISIBLE,
         MARGIN + (btnW + gap) * 2, btnY, btnW, btnH,
         hwnd, (HMENU)102, GetModuleHandleW(nullptr), nullptr);
 
-    CreateWindowW(L"BUTTON", L"Close",
+    CreateWindowW(L"BUTTON", Tr(L"Close").c_str(),
         WS_CHILD | WS_VISIBLE,
         w - MARGIN - btnW, btnY, btnW, btnH,
         hwnd, (HMENU)103, GetModuleHandleW(nullptr), nullptr);
@@ -145,6 +149,10 @@ void AutoKeyDialog::OnCreate(HWND hwnd) {
 }
 
 void AutoKeyDialog::RefreshList() {
+    auto Tr = [](const wchar_t* text) {
+        return TranslationService::Get()->Tr(L"AutoKey", text);
+    };
+
     if (!m_hList) return;
     SendMessageW(m_hList, LB_RESETCONTENT, 0, 0);
 
@@ -153,7 +161,7 @@ void AutoKeyDialog::RefreshList() {
         std::wstring item = a.name;
         if (!a.keys.empty()) item += L"  [" + a.keys + L"]";
         if (!a.triggerHotkey.empty()) item += L"  \u2190 " + a.triggerHotkey;
-        if (a.running != 0) item += L"  \u25B6 RUNNING";
+        if (a.running != 0) item += L"  \u25B6 " + Tr(L"RUNNING");
         SendMessageW(m_hList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
     }
 }
@@ -215,7 +223,7 @@ bool AutoKeyDialog::EditAction(HWND parentWnd, int actionId) {
         action.autoStart = actions[actionId].autoStart;
     } else {
         action.id = static_cast<int>(actions.size());
-        action.name = L"New Action";
+        action.name = TranslationService::Get()->Tr(L"AutoKey", L"New Action");
         action.keys = L"F13";
         action.intervalSeconds = 1200;
         action.repeatCount = 0;
@@ -255,7 +263,8 @@ bool AutoKeyDialog::EditAction(HWND parentWnd, int actionId) {
     wc.hbrBackground = GetSysColorBrush(COLOR_3DFACE);
     RegisterClassW(&wc);
 
-    HWND dlg = CreateWindowExW(0, kEditClass, isNew ? L"Add Action" : L"Edit Action",
+    HWND dlg = CreateWindowExW(0, kEditClass,
+        TranslationService::Get()->Tr(L"AutoKey", isNew ? L"Add Action" : L"Edit Action").c_str(),
         WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE,
         CW_USEDEFAULT, CW_USEDEFAULT, 420, 360,
         parentWnd, nullptr, GetModuleHandleW(nullptr), &state);
@@ -279,70 +288,74 @@ bool AutoKeyDialog::EditAction(HWND parentWnd, int actionId) {
     const int SP = 28;
     int cy = M;
 
-    auto makeLabel = [&](const wchar_t* text) {
-        CreateWindowW(L"STATIC", text, WS_CHILD | WS_VISIBLE,
+    auto Tr = [](const wchar_t* text) {
+        return TranslationService::Get()->Tr(L"AutoKey", text);
+    };
+
+    auto makeLabel = [&](const std::wstring& text) {
+        CreateWindowW(L"STATIC", text.c_str(), WS_CHILD | WS_VISIBLE,
                       M, cy, 120, LH, dlg, nullptr,
                       GetModuleHandleW(nullptr), nullptr);
     };
-    auto makeEdit = [&](const wchar_t* text, int id) {
-        CreateWindowW(L"EDIT", text, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+    auto makeEdit = [&](const std::wstring& text, int id) {
+        CreateWindowW(L"EDIT", text.c_str(), WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
                       130, cy, 260, EH, dlg, (HMENU)(INT_PTR)id,
                       GetModuleHandleW(nullptr), nullptr);
     };
-    auto makeCheck = [&](const wchar_t* text, int id, bool checked) {
-        HWND h = CreateWindowW(L"BUTTON", text,
+    auto makeCheck = [&](const std::wstring& text, int id, bool checked) {
+        HWND h = CreateWindowW(L"BUTTON", text.c_str(),
             WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
             130, cy, 260, LH, dlg, (HMENU)(INT_PTR)id,
             GetModuleHandleW(nullptr), nullptr);
         if (checked) SendMessageW(h, BM_SETCHECK, BST_CHECKED, 0);
     };
-    auto makeRadio = [&](const wchar_t* text, int id, bool selected, bool firstInGroup) {
+    auto makeRadio = [&](const std::wstring& text, int id, bool selected, bool firstInGroup) {
         DWORD style = WS_CHILD | WS_VISIBLE | BS_AUTORADIOBUTTON;
         if (firstInGroup) style |= WS_GROUP;
-        HWND h = CreateWindowW(L"BUTTON", text, style,
+        HWND h = CreateWindowW(L"BUTTON", text.c_str(), style,
                                130, cy, 120, LH, dlg, (HMENU)(INT_PTR)id,
                                GetModuleHandleW(nullptr), nullptr);
         if (selected) SendMessageW(h, BM_SETCHECK, BST_CHECKED, 0);
     };
 
-    makeLabel(L"Name:");
+    makeLabel(Tr(L"Name:"));
     makeEdit(action.name.c_str(), 10);
     cy += SP;
 
-    makeLabel(L"Keys:");
+    makeLabel(Tr(L"Keys:"));
     makeEdit(action.keys.c_str(), 11);
     cy += SP;
 
-    makeLabel(L"Trigger:");
+    makeLabel(Tr(L"Trigger:"));
     makeEdit(action.triggerHotkey.c_str(), 12);
     cy += SP;
 
-    makeLabel(L"Interval (s):");
+    makeLabel(Tr(L"Interval (s):"));
     { wchar_t buf[16]; swprintf(buf, 16, L"%d", action.intervalSeconds); makeEdit(buf, 13); }
     cy += SP;
 
-    makeLabel(L"Repeat:");
+    makeLabel(Tr(L"Repeat:"));
     { wchar_t buf[16]; swprintf(buf, 16, L"%d", action.repeatCount); makeEdit(buf, 14); }
     cy += SP;
 
-    makeCheck(L"Auto Start", 15, action.autoStart);
+    makeCheck(Tr(L"Auto Start"), 15, action.autoStart);
     cy += SP;
 
-    makeLabel(L"Action Mode:");
-    makeRadio(L"Press Once",  20, action.actionMode == 0, true);
-    makeRadio(L"Repeat",      21, action.actionMode == 1, false);
+    makeLabel(Tr(L"Action Mode:"));
+    makeRadio(Tr(L"Press Once"),  20, action.actionMode == 0, true);
+    makeRadio(Tr(L"Repeat"),      21, action.actionMode == 1, false);
     cy += SP;
 
-    makeLabel(L"Trigger Mode:");
-    makeRadio(L"Press (once)", 22, action.triggerMode == 0, true);
-    makeRadio(L"Toggle",       23, action.triggerMode == 1, false);
+    makeLabel(Tr(L"Trigger Mode:"));
+    makeRadio(Tr(L"Press (once)"), 22, action.triggerMode == 0, true);
+    makeRadio(Tr(L"Toggle"),       23, action.triggerMode == 1, false);
     cy += SP + 10;
 
-    CreateWindowW(L"BUTTON", L"OK",
+    CreateWindowW(L"BUTTON", Tr(L"OK").c_str(),
         WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
         220, cy, 80, 26, dlg, (HMENU)1,
         GetModuleHandleW(nullptr), nullptr);
-    CreateWindowW(L"BUTTON", L"Cancel",
+    CreateWindowW(L"BUTTON", Tr(L"Cancel").c_str(),
         WS_CHILD | WS_VISIBLE,
         310, cy, 80, 26, dlg, (HMENU)2,
         GetModuleHandleW(nullptr), nullptr);
