@@ -25,12 +25,29 @@ Language System:
     and Modules/*/lang/{lang}.ini as needed; Build.py handles merge.
   - To add a new module: create Modules/{Name}/lang/{lang}.ini
     with the module's own translation entries; Build.py picks it up.
-  - If a key is missing from the lang file, Tr() falls back
-    to the English key text (graceful degradation).
-  - Run Build.py (or py Build.py) before compiling; output file
-    is also deletable by Clear2.bat and regenerated on next build.
+   - If a key is missing from the lang file, Tr() falls back
+     to the English key text (graceful degradation).
+   - Run Build.py (or py Build.py) before compiling; output file
+     is also deletable by Clear2.bat and regenerated on next build.
+
+CRITICAL: INI key/value stripping in Build.py
+  - Build.py's parse_ini_sections() calls .strip() on both key and value.
+    This means keys must NOT have leading/trailing whitespace.
+  - Bad:  "▶ Start =▶ 啟動 "    (key "▶ Start " gets stripped to "▶ Start")
+  - Good: "▶ Start=▶ 啟動 "     (key "▶ Start" matches C++ Tr() lookup)
+  - Since values are also stripped, trailing spaces in translated values are lost.
+    For prefix+name patterns (e.g., "▶ Start " + actionName), the space between
+    prefix and name must be added in C++ code: Tr(L"AutoKey", L"▶ Start") + L" " + name
+    rather than relying on a trailing space in the value.
+
+Build dependency:
+  - TranslationRes.o embeds Translation/zh-TW.ini as an RCDATA resource (name "ZH_TW").
+  - Makefile rule "TranslationRes.o: $(TRANSLATION_OUT)" ensures the resource is
+    re-linked when Build.py regenerates the merged file.
+  - Without this dependency, changing a lang/*.ini and rebuilding would NOT update
+    the embedded translations in the .exe.
 
 Rules:
-  1. Services layer must NOT depend on any module.
-  2. Modules focus on feature logic; shared technical details live in services.
-  3. Services are typically stateless static methods, but may hold state if needed.
+   1. Services layer must NOT depend on any module.
+   2. Modules focus on feature logic; shared technical details live in services.
+   3. Services are typically stateless static methods, but may hold state if needed.

@@ -1,0 +1,209 @@
+//==============================================================================
+// AutoKey Module - Design Overview
+//==============================================================================
+
+Purpose:
+  Configurable key press automation module. Replaces the old Unsleep module.
+  Allows users to define named "Actions" that send keystroke sequences at
+  configurable intervals, triggered by hotkeys or auto-started.
+
+Files:
+  AutoKeyModule.h/.cpp    - Module body (IFeatureModule), hotkey window,
+                            action execution thread
+  AutoKeyDialog.h/.cpp    - Manage dialog (ListBox + Add/Edit/Delete/Close)
+                            and Edit sub-dialog (hand-crafted Win32 child window)
+  AutoKeyParser.h/.cpp    - Pure parser: ParsedChord, ParseSequence,
+                            KeyNameToVk, ModNameToVk, ModNameToRegFlag.
+                            No Window API dependency → testable in isolation.
+  AutoKey.module.ini      - Module metadata (Sources includes AutoKeyParser.cpp)
+  lang/zh-TW.ini          - Traditional Chinese translations
+
+Action struct (AutoKeyAction):
+  id              int         - Unique within module (auto-increment)
+  name            wstring     - Display name in listbox
+  keys            wstring     - Sequence string, e.g. "F13" or "Ctrl+A,Ctrl+C"
+  intervalSeconds int         - Delay between repeats (default 1200)
+  repeatCount     int         - 0 = infinite, >0 = fixed count
+  actionMode      int         - 0 = press_once (single execution),
+                                1 = repeat (loop at interval)
+  triggerHotkey   wstring     - Global hotkey string, e.g. "F8" or "" (none)
+  triggerMode     int         - 0 = press (execute once on hotkey press),
+                                1 = toggle (start/stop on hotkey press)
+  autoStart       bool        - Start on module load
+  running         volatile    - Atomic flag for thread-safe stop
+  thread          std::thread - Execution thread (joinable while running)
+
+Config file format (Config_AutoKey.ini):
+  [Action_0]
+  Name=Anti Sleep
+  Keys=F13
+  Interval=1200
+  Repeat=0
+  ActionMode=1
+  TriggerHotkey=
+  TriggerMode=0
+  AutoStart=1
+
+  [Action_1]
+  Name=Ctrl+Shift
+  Keys=Ctrl+Shift
+  Interval=600
+  Repeat=0
+  ActionMode=1
+  TriggerHotkey=F8
+  TriggerMode=1
+  AutoStart=0
+
+  - Uses custom INI access (GetPrivateProfileStringW/WritePrivateProfileStringW)
+    via SaveActions/LoadActions, NOT standard ConfigFieldDefinition.
+  - [Action_N] sections enumerated by scanning key names "Name" in increasing N.
+
+Default action:
+  - When LoadActions finds zero actions, creates a default "Anti Sleep" action:
+    F13, 1200s interval, AutoStart = true.
+
+Hotkey system:
+  - Hidden WS_POPUP window (m_hHotkeyWnd) created during Initialize().
+  - Dedicated WNDCLASS registered once with RegisterClassEx.
+  - Global hotkeys registered via RegisterHotKey() for each action that has
+    a triggerHotkey, storing the action id in the id parameter.
+  - WM_HOTKEY received by HotkeyWndProc → dispatches to this->OnHotkey(actionId).
+  - OnHotkey calls RunAction(actionId) for press mode or toggles for toggle mode.
+  - Action IDs are offset to avoid collisions: id + kHotkeyIdBase (10000).
+
+RunAction / ExecuteSequence:
+  - RunAction runs in a separate std::thread.
+  - Loops: check running flag → ExecuteSequence → sleep interval → check repeat.
+  - ExecuteSequence parses keys string via ParseSequence() into ParsedChord[].
+  - Each chord: presses modifier keys (Shift/Ctrl/Alt/Win), presses/releases
+    the main key, but does NOT release modifiers between chords in a sequence
+    to allow "Ctrl+A,Ctrl+C" to work correctly (modifier state is maintained
+    until the next chord changes it).
+  - INPUT structures sent via SendInput() with proper scan code lookup
+    (MapVirtualKey(MAKELONG(key, 0), MAPVK_VK_TO_VSC)).
+
+Right-click menu:
+  - "■ Stop All" (id = kMenuStopAll = 2000) — calls StopAll()
+  - For each running action: "■ Stop <name>" (id = kMenuStopBase + id)
+    where the prefix "■ Stop" is translated via Tr().
+  - For each stopped action with a trigger hotkey:
+    "▶ Start <name>" (id = kMenuStartBase + id)
+    with prefix "▶ Start" translated via Tr().
+  - Parent label: Tr(L"AutoKey", L"Manage AutoKey Actions")
+    appears as entry in the "Function" submenu, which opens the manage dialog.
+
+Settings dialog integration:
+  - HasCustomSettings() returns true → SettingsDialog shows "Manage Actions..."
+    button (ID 1000) for this module's tab.
+  - OpenCustomSettings(HWND) → ShowManageDialog(parent).
+  - Standard config fields: Enable Module (bool, default 1).
+
+Manage dialog (AutoKeyDialog):
+  - Modal dialog with ListBox + buttons: Add, Edit, Delete, Close.
+  - ListBox uses LBS_HASSTRINGS, stores action IDs in item data.
+  - Double-click on item opens edit dialog.
+  - Close calls EndDialog, Save is called in the module's SaveConfig path.
+
+Edit sub-dialog:
+  - NOT a Dialog Resource — created as a modal child window with CreateWindowEx,
+    using a hand-crafted WndProc. Reason: avoid .rc dependency for module.
+  - Fields: Name (edit), Keys (edit), Trigger (edit), Interval (edit),
+    Repeat (edit), Auto Start (checkbox), Action Mode (radio: Press Once/Repeat),
+    Trigger Mode (radio: Press/Toggle), OK, Cancel.
+
+  CRITICAL BUG FIXES:
+
+  1. DestroyWindow timing (BUG: empty list after Add):
+     - Original: OK button handler called DestroyWindow(h) first, then
+       readText()/readRadio() to read control values → destoyed after read.
+       FIX: Use a struct state { bool ok; } flag that breaks the message loop.
+       After loop exits, read control values, THEN call DestroyWindow(dlg).
+
+  2. WS_GROUP on radio buttons (BUG: all radios linked):
+     - BS_AUTORADIOBUTTON requires WS_GROUP to mark group boundaries.
+     - Without WS_GROUP between Action Mode (Press Once/Repeat) and Trigger Mode
+       (Press/Toggle), all four radios behave as a single group.
+     - FIX: Pass WS_GROUP to makeRadio() for "Press Once" (first radio of group 1)
+       and "Press (once)" (first radio of group 2). The second radio in each
+       group omits WS_GROUP so it belongs to the same group.
+
+  3. Button disappearance after manage dialog (BUG: Manage button gone):
+     - SettingsDialog::OpenCustomSettings → module::OpenCustomSettings →
+       ShowManageDialog → when dialog closes, control returns to SettingsDialog.
+     - Original code in ID 1000 handler: DestroyWindow + PopulateFields →
+       this destroys the "Manage Actions..." button itself.
+     - FIX: Only call ReadFieldsFromControls() before opening the child dialog.
+       Do NOT destroy or repopulate the parent's controls. The Manage button
+       survives because it was never destroyed.
+
+Traditional Chinese translation (zh-TW):
+  File: Modules/AutoKey/lang/zh-TW.ini
+
+  [AutoKey] section (27 entries + menu labels):
+    Key prefixes use Unicode symbols: "■" (solid square) for stop actions,
+    "▶" (play triangle) for start actions.
+    Translations:
+      ■ Stop All=■ 全部停止
+      ■ Stop=■ 停止
+      ▶ Start=▶ 啟動
+      Manage AutoKey Actions=管理按鍵精靈
+      Add=新增       Edit=編輯       Delete=刪除
+      Close=關閉     RUNNING=執行中
+      New Action=新增動作
+      Add Action=新增動作
+      Edit Action=編輯動作
+      Name:=名稱:    Keys:=按鍵:
+      Trigger:=觸發鍵:   Interval (s):=間隔 (秒):
+      Repeat:=重複次數:  Auto Start=自動啟動
+      Action Mode:=動作模式:   Press Once=按一次   Repeat=重複
+      Trigger Mode:=觸發模式:   Press (once)=按下 (一次)   Toggle=切換
+      OK=確定        Cancel=取消
+
+  [TabLabels] section:
+    AutoKey=按鍵精靈
+
+  [About] section:
+    Configurable key press automation.=可設定的按鍵自動化程式。
+
+  CRITICAL: Translation keys must NOT have trailing spaces.
+  Build.py's parse_ini_sections() calls .strip() on both key and value.
+  The C++ code does: Tr(L"AutoKey", L"▶ Start") + L" " + actionName
+  (space added in C++, not in the translation value).
+
+Key parser (AutoKeyParser.h/.cpp):
+  - ParsedChord: holds modifier flags (shift/ctrl/alt/win) + vkey.
+  - ParseSequence(s):
+    Splits on "," into chords, each chord splits on "+" into tokens.
+    First token is the main key (looked up via KeyNameToVk).
+    Remaining tokens are modifiers (ModNameToVk).
+    Returns vector<ParsedChord>.
+    Returns empty on any parse failure.
+  - KeyNameToVk(name):
+    Lookup table: A-Z → VK_A..VK_Z, F1-F24 → VK_F1..VK_F24,
+    named keys: SPACE/VK_SPACE, SHIFT/VK_SHIFT, CONTROL/VK_CONTROL,
+    ALT/VK_MENU, WIN/VK_LWIN, ENTER/RETURN → VK_RETURN,
+    TAB→VK_TAB, ESC/ESCAPE→VK_ESCAPE,
+    BACK/BACKSPACE→VK_BACK, DEL/DELETE→VK_DELETE,
+    PRINT/PRINTSCR→VK_SNAPSHOT, and numeric "0"-"9" → VK_0..VK_9.
+  - ModNameToVk(name):
+    "shift" → VK_SHIFT, "ctrl"/"control" → VK_CONTROL,
+    "alt" → VK_MENU, "win" → VK_LWIN.
+    Returns 0 if unknown.
+  - ModNameToRegFlag(name):
+    "shift" → MOD_SHIFT, "ctrl"/"control" → MOD_CONTROL,
+    "alt" → MOD_ALT, "win" → MOD_WIN.
+    Returns 0 if unknown.
+
+Unit tests (Tests/AutoKeyTest.cpp):
+  - 65 test cases covering: KeyNameToVk, ModNameToVk, ParseSequence
+    (including empty, null, out-of-range), and INI round-trip with
+    manually written UTF-16 LE file read back via GetPrivateProfileStringW.
+  - Compiled with mingw32-make test.
+  - Uses simple macro-based test framework (no external dependency).
+  - Tests #include the .cpp files directly.
+
+Debug hints:
+  - DBG(L"AutoKey: ...") works throughout the module when DEBUG_CONSOLE=1.
+  - DBG_OPEN() is called in main.cpp, no manual console setup needed.
+  - The hotkey WndProc and RunAction thread both have DBG() calls for
+    tracing hotkey reception and action execution.

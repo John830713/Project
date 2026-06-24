@@ -42,6 +42,22 @@ Movement system:
   - Screen edges: bounce (reverse axis) or shuttle (wrap to opposite side)
   - Timer auto-stops on WM_DESTROY or when moveEnabled = false
 
+Adsorption (magnetic snap):
+  - When the pet window is within "stick" distance of a screen edge, it snaps
+    flush to that edge (both x and y independently).
+  - Threshold = (windowWidth + windowHeight) / 4, minimum 40px.
+    Previously hardcoded to 150px; changed to dynamic formula for scaling.
+
+Pet.png rendering:
+  - Loads Pet.png from the executable directory via GDI+ (Gdiplus::Image).
+  - If Pet.png is missing or fails to load, renders a green solid square as
+    a fallback placeholder.
+
+Language reload:
+  - Right-click context menu labels are rebuilt on WM_APP_RELOAD_PETCONFIG
+    (sent by SettingsDialog when the language setting changes).
+  - This reloads TranslationService and rebuilds all menu strings.
+
 SliderPopups:
   - Modeless popup window with Trackbar + Edit + Range label
   - Trackbar scroll updates edit and applies change via PostMessage

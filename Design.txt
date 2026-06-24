@@ -10,3 +10,11 @@ Architecture:
   UI/          - Settings dialog
   Modules/     - Feature modules (discovered at build time)
   HostApp      - Application host, IHostContext implementation
+
+Build commands:
+  mingw32-make            - Release build
+  mingw32-make debug      - Clean rebuild with DEBUG_CONSOLE=1 (AllocConsole)
+  mingw32-make test       - Run unit tests (Tests/AutoKeyTest.exe)
+  mingw32-make rebuild    - Clean + release rebuild
+  mingw32-make CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1  - Incremental debug build
+  py Build.py             - Regenerate module registry + merged translations
