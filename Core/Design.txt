@@ -17,9 +17,12 @@ Contents:
   IHostContext       - Generic host context abstraction (HINSTANCE + HWND)
   IDropActionProvider - Drop action provider interface (optional)
   IInputHandler      - Input handling interface (optional)
-  InputManager       - Centralized input dispatch (optional)
-  DropTypes          - DropContext / DropActionDefinition shared types
-  ContextMenuItem    - Shared struct (defined in IFeatureModule.h) for right-click menu items
+   InputManager       - Centralized input dispatch (optional)
+   DropTypes          - DropContext / DropActionDefinition shared types
+   ContextMenuItem    - Shared struct (defined in IFeatureModule.h) for right-click menu items
+   DebugConsole       - Compile-time debug console utility; add -DDEBUG_CONSOLE=1 to CXXFLAGS
+                       to enable, then DBG()/wprintf output goes to an AllocConsole() window.
+                       When disabled (default), all DBG() macros compile to ((void)0).
 
 Rules:
   1. Core layer must NOT depend on any specific feature module.
