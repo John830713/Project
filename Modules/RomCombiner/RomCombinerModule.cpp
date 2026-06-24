@@ -103,10 +103,17 @@ bool RomCombinerModule::GetBoolValue(const std::wstring& key, bool defaultValue)
 //==============================================================================
 
 bool RomCombinerModule::CanHandleDrop(const DropContext& ctx) const {
-    if (!GetBoolValue(L"Enabled", true)) {
-        return false;
+    if (!GetBoolValue(L"Enabled", true)) return false;
+    if (ctx.filePaths.empty()) return false;
+    for (const auto& p : ctx.filePaths) {
+        auto dot = p.rfind(L'.');
+        if (dot == std::wstring::npos || dot == 0) return false;
+        std::wstring ext = p.substr(dot);
+        for (auto& c : ext)
+            if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+        if (ext != L".bin" && ext != L".rom") return false;
     }
-    return !ctx.filePaths.empty();
+    return true;
 }
 
 std::vector<DropActionDefinition> RomCombinerModule::GetDropActions(const DropContext& ctx) const {

@@ -5,6 +5,7 @@
 #include "../Core/DropTypes.h"
 #include "../Core/InputManager.h"
 #include "../Services/TranslationService.h"
+#include "../Modules/RemoteControl/RemoteControlModule.h"
 #include <windowsx.h>
 #include <shellapi.h>
 #include <commctrl.h>
@@ -195,7 +196,7 @@ MainWindow::MainWindow()
       m_moveLocked(false), m_scalePercent(100), m_currentOpacity(255),
       m_moveEnabled(false), m_moveStep(3), m_moveSpeed(200), m_moveShuttle(false),
       m_moveDx(1), m_moveDy(1), m_movePauseMs(0),
-      m_edgeSnapped(false), m_snapEdge(SNAP_NONE) {
+      m_edgeSnapped(false), m_snapEdge(SNAP_NONE), m_snapIndicator(nullptr) {
     m_hSliderPopup = nullptr;
     Gdiplus::GdiplusStartupInput gsi;
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gsi, nullptr);
@@ -204,6 +205,7 @@ MainWindow::MainWindow()
 MainWindow::~MainWindow() {
     delete m_petImage;
     delete m_originalImage;
+    delete m_snapIndicator;
     if (m_gdiplusToken)
         Gdiplus::GdiplusShutdown(m_gdiplusToken);
 }
@@ -221,7 +223,16 @@ bool MainWindow::LoadPetImage() {
         delete m_petImage;
         m_petImage = nullptr;
     }
-    return false;
+
+    const int defaultSize = 64;
+    m_petImage = new Gdiplus::Bitmap(defaultSize, defaultSize, PixelFormat32bppARGB);
+    Gdiplus::Graphics g(m_petImage);
+    Gdiplus::SolidBrush brush(Gdiplus::Color(180, 80, 200, 80));
+    g.FillRectangle(&brush, 0, 0, defaultSize, defaultSize);
+    m_imageWidth = defaultSize;
+    m_imageHeight = defaultSize;
+    m_originalImage = m_petImage->Clone(0, 0, defaultSize, defaultSize, m_petImage->GetPixelFormat());
+    return true;
 }
 
 void MainWindow::ApplyWindowImage() {
@@ -271,13 +282,7 @@ bool MainWindow::Create(
     m_appVersion = appVersion.empty() ? L"1.0.0" : appVersion;
     m_appPurpose = appPurpose.empty() ? TranslationService::Get()->Tr(L"Pet", L"Modular desktop pet.") : appPurpose;
 
-    if (!LoadPetImage()) {
-        MessageBoxW(nullptr,
-            TranslationService::Get()->Tr(L"Pet", L"Failed to load Pet.png.\nPlace Pet.png in the project root or Pet/ directory.").c_str(),
-            TranslationService::Get()->Tr(L"Pet", L"Pet Image Missing").c_str(),
-            MB_OK | MB_ICONERROR);
-        return false;
-    }
+    LoadPetImage();
 
     m_currentOpacity = petCfg.opacity;
     m_scalePercent = 100;
@@ -450,8 +455,90 @@ void MainWindow::OnMoveTimer() {
     SetWindowPos(m_hwnd, nullptr, newX, newY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+void MainWindow::CreateSnapIndicator() {
+    delete m_snapIndicator;
+    m_snapIndicator = nullptr;
+
+    const int s = SNAP_INDICATOR_SIZE;
+    const int r = 4;
+
+    m_snapIndicator = new Gdiplus::Bitmap(s, s, PixelFormat32bppARGB);
+    Gdiplus::Graphics g(m_snapIndicator);
+    g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+
+    Gdiplus::GraphicsPath path;
+    path.AddArc(1, 1, r * 2, r * 2, 180, 90);
+    path.AddArc(s - 1 - r * 2, 1, r * 2, r * 2, 270, 90);
+    path.AddArc(s - 1 - r * 2, s - 1 - r * 2, r * 2, r * 2, 0, 90);
+    path.AddArc(1, s - 1 - r * 2, r * 2, r * 2, 90, 90);
+    path.CloseFigure();
+
+    Gdiplus::SolidBrush bgBrush(Gdiplus::Color(200, 160, 160, 160));
+    g.FillPath(&bgBrush, &path);
+
+    Gdiplus::Pen borderPen(Gdiplus::Color(160, 120, 120, 120), 1.0f);
+    g.DrawPath(&borderPen, &path);
+
+    COLORREF ledColor = 0;
+    if (m_moduleManager) {
+        for (auto* mod : m_moduleManager->GetAllModules()) {
+            if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0) {
+                auto* rc = static_cast<RemoteControlModule*>(mod);
+                if (rc->IsRunning()) ledColor = rc->GetLedColor();
+                break;
+            }
+        }
+    }
+    Gdiplus::Color dotColor;
+    if (ledColor)
+        dotColor = Gdiplus::Color(255, GetRValue(ledColor), GetGValue(ledColor), GetBValue(ledColor));
+    else
+        dotColor = m_moveEnabled ?
+            Gdiplus::Color(255, 100, 220, 100) :
+            Gdiplus::Color(255, 180, 180, 180);
+    Gdiplus::SolidBrush dotBrush(dotColor);
+    int dotSize = s - 12;
+    g.FillEllipse(&dotBrush, (s - dotSize) / 2, (s - dotSize) / 2, dotSize, dotSize);
+}
+
+void MainWindow::ApplySnapIndicator() {
+    if (!m_hwnd || !m_snapIndicator) return;
+
+    HDC hdcScreen = GetDC(nullptr);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hBitmap = nullptr;
+    m_snapIndicator->GetHBITMAP(Gdiplus::Color(0, 0, 0), &hBitmap);
+    SelectObject(hdcMem, hBitmap);
+
+    BLENDFUNCTION blend = {};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+
+    POINT ptZero = {0, 0};
+    SIZE sizeWnd = {SNAP_INDICATOR_SIZE, SNAP_INDICATOR_SIZE};
+    RECT rc;
+    GetWindowRect(m_hwnd, &rc);
+    POINT ptPos = {rc.left, rc.top};
+
+    UpdateLayeredWindow(m_hwnd, hdcScreen, &ptPos, &sizeWnd, hdcMem, &ptZero, 0, &blend, ULW_ALPHA);
+
+    DeleteObject(hBitmap);
+    DeleteDC(hdcMem);
+    ReleaseDC(nullptr, hdcScreen);
+}
+
 void MainWindow::CheckEdgeSnap() {
     if (!m_hwnd) return;
+
+    auto findRcMod = [this]() -> RemoteControlModule* {
+        if (!m_moduleManager) return nullptr;
+        for (auto* mod : m_moduleManager->GetAllModules()) {
+            if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0)
+                return static_cast<RemoteControlModule*>(mod);
+        }
+        return nullptr;
+    };
 
     RECT rc;
     GetWindowRect(m_hwnd, &rc);
@@ -464,17 +551,23 @@ void MainWindow::CheckEdgeSnap() {
     int distLeft = rc.left;
     int distRight = screenW - rc.right;
 
-    // Find the closest edge
+    int threshold = (m_imageWidth + m_imageHeight) / 4;
+    if (threshold < 40) threshold = 40;
+
     int d = distTop;
     int edge = SNAP_TOP;
     if (distBottom < d) { d = distBottom; edge = SNAP_BOTTOM; }
     if (distLeft < d) { d = distLeft; edge = SNAP_LEFT; }
     if (distRight < d) { d = distRight; edge = SNAP_RIGHT; }
 
-    if (d > EDGE_SNAP_THRESHOLD) {
+    if (d > threshold) {
         if (m_edgeSnapped) {
             m_edgeSnapped = false;
             m_snapEdge = SNAP_NONE;
+            KillTimer(m_hwnd, 2);
+            if (auto* rc = findRcMod()) rc->ShowLed(true);
+            SetWindowPos(m_hwnd, nullptr, rc.left, rc.top, m_imageWidth, m_imageHeight, SWP_NOZORDER | SWP_NOACTIVATE);
+            ApplyWindowImage();
         }
         return;
     }
@@ -484,22 +577,27 @@ void MainWindow::CheckEdgeSnap() {
 
     switch (edge) {
     case SNAP_TOP:
-        newY = -(m_imageHeight - EDGE_SNAP_REVEAL);
+        newY = 0;
         break;
     case SNAP_BOTTOM:
-        newY = screenH - EDGE_SNAP_REVEAL;
+        newY = screenH - SNAP_INDICATOR_SIZE;
         break;
     case SNAP_LEFT:
-        newX = -(m_imageWidth - EDGE_SNAP_REVEAL);
+        newX = 0;
         break;
     case SNAP_RIGHT:
-        newX = screenW - EDGE_SNAP_REVEAL;
+        newX = screenW - SNAP_INDICATOR_SIZE;
         break;
     }
 
-    SetWindowPos(m_hwnd, nullptr, newX, newY, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    if (auto* rc = findRcMod()) rc->ShowLed(false);
+
+    SetWindowPos(m_hwnd, nullptr, newX, newY, SNAP_INDICATOR_SIZE, SNAP_INDICATOR_SIZE, SWP_NOZORDER | SWP_NOACTIVATE);
     m_edgeSnapped = true;
     m_snapEdge = edge;
+    SetTimer(m_hwnd, 2, 250, nullptr);
+    CreateSnapIndicator();
+    ApplySnapIndicator();
 }
 
 void MainWindow::SetOpacity(int alpha) {
@@ -568,6 +666,7 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
     case WM_TIMER:
         if (wParam == 1) { OnMoveTimer(); return 0; }
+        if (wParam == 2 && m_edgeSnapped) { CreateSnapIndicator(); ApplySnapIndicator(); return 0; }
         break;
 
     case WM_NCRBUTTONUP:
@@ -590,6 +689,7 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
     case WM_DESTROY:
         StopMoveTimer();
+        KillTimer(m_hwnd, 2);
         PostQuitMessage(0);
         return 0;
 

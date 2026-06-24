@@ -132,6 +132,11 @@ bool RomSeparatorModule::CanHandleDrop(const DropContext& ctx) const {
         return false;
     }
 
+    std::wstring ext = path.extension().wstring();
+    for (auto& c : ext)
+        if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+    if (ext != L".bin" && ext != L".rom") return false;
+
     try {
         const auto size = fs::file_size(path);
         if (!RomSeparatorLogic::IsSupportedRomSize(size)) {

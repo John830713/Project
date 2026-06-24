@@ -5,6 +5,7 @@
 #include "Core/ConfigManager.h"
 #include "GeneratedModuleRegistry.h"
 
+#include <mmsystem.h>
 #include <filesystem>
 #include <fstream>
 
@@ -13,7 +14,20 @@ namespace fs = std::filesystem;
 HostApp::HostApp() : m_hInstance(nullptr), m_mainWindow(nullptr), m_window(nullptr) {}
 HostApp::~HostApp() { delete m_window; }
 
+static void SetDpiAware() {
+    HMODULE h = LoadLibraryW(L"shcore.dll");
+    if (h) {
+        typedef HRESULT(WINAPI* FN)(int);
+        FN fn = reinterpret_cast<FN>(GetProcAddress(h, "SetProcessDpiAwareness"));
+        if (fn) { fn(2); FreeLibrary(h); return; }
+        FreeLibrary(h);
+    }
+    SetProcessDPIAware();
+}
+
 bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
+    SetDpiAware();
+    timeBeginPeriod(1);
     m_hInstance = hInstance;
 
     ConfigManager::Initialize(hInstance);
@@ -58,6 +72,7 @@ int HostApp::Run() {
     }
 
     m_moduleManager.ShutdownAllModules();
+    timeEndPeriod(1);
     Logger::Write(L"Main", L"Host application shutdown completed.");
     return static_cast<int>(msg.wParam);
 }

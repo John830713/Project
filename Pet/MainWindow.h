@@ -86,13 +86,15 @@ private:
 
     bool m_edgeSnapped;
     int m_snapEdge;
+    Gdiplus::Bitmap* m_snapIndicator;
 
     enum { SNAP_NONE = 0, SNAP_TOP, SNAP_BOTTOM, SNAP_LEFT, SNAP_RIGHT };
 
     void CheckEdgeSnap();
+    void CreateSnapIndicator();
+    void ApplySnapIndicator();
 
-    static constexpr int EDGE_SNAP_THRESHOLD = 150;
-    static constexpr int EDGE_SNAP_REVEAL = 30;
+    static constexpr int SNAP_INDICATOR_SIZE = 24;
 
     enum {
         ID_EXIT = 100, ID_SETTINGS = 101,

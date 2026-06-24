@@ -102,11 +102,21 @@ std::wstring ChangeECModule::GetStringValue(const std::wstring& key, const std::
 // Drop Actions
 //==============================================================================
 
+static bool isBinOrRom(const std::wstring& path) {
+    auto dot = path.rfind(L'.');
+    if (dot == std::wstring::npos || dot == 0) return false;
+    std::wstring ext = path.substr(dot);
+    for (auto& c : ext)
+        if (c >= L'A' && c <= L'Z') c = static_cast<wchar_t>(c - L'A' + L'a');
+    return ext == L".bin" || ext == L".rom";
+}
+
 bool ChangeECModule::CanHandleDrop(const DropContext& ctx) const {
-    if (!GetBoolValue(L"Enabled", true)) {
-        return false;
-    }
-    return !ctx.filePaths.empty();
+    if (!GetBoolValue(L"Enabled", true)) return false;
+    if (ctx.filePaths.empty()) return false;
+    for (const auto& p : ctx.filePaths)
+        if (!isBinOrRom(p)) return false;
+    return true;
 }
 
 std::vector<DropActionDefinition> ChangeECModule::GetDropActions(const DropContext& ctx) const {

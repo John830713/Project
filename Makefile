@@ -1,7 +1,7 @@
 CXX = g++
 RC = windres
-CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -municode
-LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -mwindows
+CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode
+LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows
 
 # Auto-regenerate build/translation files if missing
 ifeq ($(wildcard GeneratedBuild.mk),)
@@ -33,7 +33,7 @@ CPP_OBJS = \
 endif
 
 ifndef RC_OBJS
-RC_OBJS =
+RC_OBJS = TranslationRes.o
 endif
 
 ifndef GENERATED_ICON_OBJ

@@ -1,5 +1,10 @@
 #include "TranslationService.h"
 #include <windows.h>
+#include <algorithm>
+#include <cstdint>
+
+const wchar_t* const TranslationService::kEmbeddedLangs[] = { L"zh-TW" };
+const int TranslationService::kEmbeddedLangCount = 1;
 
 std::wstring TranslationService::FindTranslationDir() const {
     wchar_t buf[MAX_PATH];
@@ -27,6 +32,77 @@ void TranslationService::LoadFile(const std::wstring& path) {
     }
 }
 
+void TranslationService::ParseIniFromWide(const wchar_t* data, size_t charLen) {
+    std::wstring currentSection;
+    size_t pos = 0;
+    while (pos < charLen) {
+        size_t eol = pos;
+        while (eol < charLen && data[eol] != L'\n') eol++;
+        size_t lineLen = eol - pos;
+        if (lineLen > 0 && data[pos + lineLen - 1] == L'\r') lineLen--;
+
+        const wchar_t* line = data + pos;
+        size_t len = lineLen;
+        pos = eol + 1;
+
+        if (len == 0) continue;
+
+        if (line[0] == L'[') {
+            const wchar_t* close = wmemchr(line, L']', len);
+            if (close) {
+                currentSection.assign(line + 1, close - line - 1);
+            }
+        } else {
+            const wchar_t* eq = wmemchr(line, L'=', len);
+            if (eq && !currentSection.empty()) {
+                std::wstring key(line, eq - line);
+                std::wstring val(eq + 1, len - (eq - line) - 1);
+                m_strings[currentSection][key] = val;
+            }
+        }
+    }
+}
+
+bool TranslationService::LoadFromResource(const std::wstring& langCode) {
+    // Map lang code to resource name: zh-TW -> ZH_TW
+    std::wstring resName;
+    for (wchar_t c : langCode) {
+        if (c == L'-') resName += L'_';
+        else if (c >= L'a' && c <= L'z') resName += static_cast<wchar_t>(c & ~0x20);
+        else resName += c;
+    }
+
+    HRSRC hRes = FindResourceW(nullptr, resName.c_str(), RT_RCDATA);
+    if (!hRes) return false;
+
+    HGLOBAL hGlob = LoadResource(nullptr, hRes);
+    if (!hGlob) return false;
+
+    const uint8_t* bytes = static_cast<const uint8_t*>(LockResource(hGlob));
+    DWORD sz = SizeofResource(nullptr, hRes);
+    if (!bytes || sz < 2) return false;
+
+    // Expect UTF-16LE BOM (0xFF 0xFE)
+    if (bytes[0] == 0xFF && bytes[1] == 0xFE) {
+        const wchar_t* wide = reinterpret_cast<const wchar_t*>(bytes + 2);
+        size_t charLen = (sz - 2) / sizeof(wchar_t);
+        ParseIniFromWide(wide, charLen);
+        return true;
+    }
+
+    // Fallback: treat as UTF-8
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0,
+        reinterpret_cast<const char*>(bytes), static_cast<int>(sz),
+        nullptr, 0);
+    if (wideLen <= 0) return false;
+    std::wstring buf(static_cast<size_t>(wideLen), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0,
+        reinterpret_cast<const char*>(bytes), static_cast<int>(sz),
+        &buf[0], wideLen);
+    ParseIniFromWide(buf.data(), buf.size());
+    return true;
+}
+
 TranslationService* TranslationService::Get() {
     static TranslationService instance;
     return &instance;
@@ -37,12 +113,7 @@ bool TranslationService::Load(const std::wstring& langCode) {
     m_currentLang = langCode;
     if (langCode == L"en") return true;
 
-    std::wstring path = FindTranslationDir() + L"\\" + langCode + L".ini";
-    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES)
-        return false;
-
-    LoadFile(path);
-    return true;
+    return LoadFromResource(langCode);
 }
 
 bool TranslationService::SetLanguage(const std::wstring& langCode) {
@@ -64,19 +135,25 @@ std::vector<std::wstring> TranslationService::GetAvailableLanguages() const {
 
     WIN32_FIND_DATAW ffd;
     HANDLE hFind = FindFirstFileW((FindTranslationDir() + L"\\*.ini").c_str(), &ffd);
-    if (hFind == INVALID_HANDLE_VALUE) return langs;
-
-    do {
-        if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            std::wstring name(ffd.cFileName);
-            auto dot = name.rfind(L'.');
-            if (dot != std::wstring::npos) {
-                std::wstring stem = name.substr(0, dot);
-                if (stem != L"en")
-                    langs.push_back(stem);
+    if (hFind != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                std::wstring name(ffd.cFileName);
+                auto dot = name.rfind(L'.');
+                if (dot != std::wstring::npos) {
+                    std::wstring stem = name.substr(0, dot);
+                    if (stem != L"en")
+                        langs.push_back(stem);
+                }
             }
-        }
-    } while (FindNextFileW(hFind, &ffd));
-    FindClose(hFind);
+        } while (FindNextFileW(hFind, &ffd));
+        FindClose(hFind);
+    }
+
+    for (int i = 0; i < kEmbeddedLangCount; i++) {
+        if (std::find(langs.begin(), langs.end(), kEmbeddedLangs[i]) == langs.end())
+            langs.push_back(kEmbeddedLangs[i]);
+    }
+
     return langs;
 }
