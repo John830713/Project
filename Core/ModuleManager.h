@@ -38,11 +38,16 @@ public:
 
     //--- Context menu dispatch ---
     std::vector<ContextMenuItem> GetContextMenuItems() const;
-    bool ExecuteContextMenuItem(int itemId);
+    bool ExecuteContextMenuItem(int uniqueId);
 
     //--- Module enumeration ---
     const std::vector<IFeatureModule*>& GetAllModules() const { return m_modules; }
 
 private:
+    struct MenuRoute {
+        IFeatureModule* module;
+        int originalItemId;
+    };
+    mutable std::vector<MenuRoute> m_menuRoutes;
     std::vector<IFeatureModule*> m_modules;
 };

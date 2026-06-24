@@ -94,26 +94,27 @@ bool ModuleManager::ExecuteDropAction(const ResolvedDropAction& resolvedAction, 
 std::vector<ContextMenuItem> ModuleManager::GetContextMenuItems() const {
     std::vector<ContextMenuItem> result;
 
+    m_menuRoutes.clear();
+    int uniqueId = 0;
+
     for (auto* module : m_modules) {
         std::vector<ContextMenuItem> items = module->GetContextMenuItems();
         for (const auto& item : items) {
-            result.push_back(item);
+            result.push_back({ uniqueId, item.label });
+            m_menuRoutes.push_back({ module, item.itemId });
+            ++uniqueId;
         }
     }
 
     return result;
 }
 
-bool ModuleManager::ExecuteContextMenuItem(int itemId) {
-    for (auto* module : m_modules) {
-        std::vector<ContextMenuItem> items = module->GetContextMenuItems();
-        for (const auto& item : items) {
-            if (item.itemId == itemId) {
-                module->ExecuteContextMenuItem(itemId);
-                return true;
-            }
-        }
+bool ModuleManager::ExecuteContextMenuItem(int uniqueId) {
+    if (uniqueId < 0 || uniqueId >= static_cast<int>(m_menuRoutes.size())) {
+        return false;
     }
 
-    return false;
+    const auto& route = m_menuRoutes[uniqueId];
+    route.module->ExecuteContextMenuItem(route.originalItemId);
+    return true;
 }
