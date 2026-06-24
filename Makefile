@@ -61,7 +61,7 @@ endif
 
 DEPS = $(CPP_OBJS:.o=.d)
 
-.PHONY: all clean rebuild distclean
+.PHONY: all test clean rebuild distclean
 
 all: $(TARGET)
 
@@ -78,6 +78,18 @@ endif
 
 %.o: %.rc
 	$(RC) $< -O coff -o $@
+
+TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -static-libgcc -static-libstdc++ -static
+TEST_LIBS = -luser32 -lkernel32
+
+TEST_TARGET = Tests/AutoKeyTest.exe
+TEST_SRCS = Tests/AutoKeyTest.cpp Modules/AutoKey/AutoKeyParser.cpp
+
+test: $(TEST_TARGET)
+	$(TEST_TARGET)
+
+$(TEST_TARGET): $(TEST_SRCS)
+	$(CXX) $(TEST_CXXFLAGS) -I. $(TEST_SRCS) -o $(TEST_TARGET) $(TEST_LIBS)
 
 -include $(DEPS)
 
