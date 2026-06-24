@@ -1,6 +1,6 @@
 CXX = g++
 RC = windres
-CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode
+CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode $(CXXFLAGS_EXTRA)
 LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows
 
 # Auto-regenerate build/translation files if missing
@@ -61,9 +61,12 @@ endif
 
 DEPS = $(CPP_OBJS:.o=.d)
 
-.PHONY: all test clean rebuild distclean
+.PHONY: all test debug clean rebuild distclean
 
 all: $(TARGET)
+
+debug: CXXFLAGS_EXTRA += -DDEBUG_CONSOLE=1
+debug: clean all
 
 $(TARGET): $(ALL_OBJS)
 	$(CXX) $(CXXFLAGS) $(ALL_OBJS) -o $(TARGET) $(LIBS) $(LIBS_EXTRA)
