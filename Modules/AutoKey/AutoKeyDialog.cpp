@@ -18,6 +18,18 @@ void AutoKeyDialog::Show(HWND parent, AutoKeyModule* module) {
     MSG msg = {};
     while (GetMessageW(&msg, nullptr, 0, 0)) {
         if (!IsWindow(dlg.m_hwnd)) break;
+        if (msg.message == WM_KEYDOWN && msg.wParam == 'A' &&
+            (GetKeyState(VK_CONTROL) & 0x8000)) {
+            HWND hFocus = GetFocus();
+            if (hFocus) {
+                wchar_t cls[16] = {};
+                GetClassNameW(hFocus, cls, 16);
+                if (wcscmp(cls, L"Edit") == 0) {
+                    SendMessageW(hFocus, EM_SETSEL, 0, -1);
+                    continue;
+                }
+            }
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -365,6 +377,18 @@ bool AutoKeyDialog::EditAction(HWND parentWnd, int actionId) {
 
     MSG msg = {};
     while (!state.done && GetMessageW(&msg, nullptr, 0, 0)) {
+        if (msg.message == WM_KEYDOWN && msg.wParam == 'A' &&
+            (GetKeyState(VK_CONTROL) & 0x8000)) {
+            HWND hFocus = GetFocus();
+            if (hFocus) {
+                wchar_t cls[16] = {};
+                GetClassNameW(hFocus, cls, 16);
+                if (wcscmp(cls, L"Edit") == 0) {
+                    SendMessageW(hFocus, EM_SETSEL, 0, -1);
+                    continue;
+                }
+            }
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
