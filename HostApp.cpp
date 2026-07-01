@@ -3,6 +3,7 @@
 #include "Pet/MainWindow.h"
 #include "Core/Logger.h"
 #include "Core/ConfigManager.h"
+#include "Core/DebugConsole.h"
 #include "GeneratedModuleRegistry.h"
 
 #include <mmsystem.h>
@@ -65,11 +66,27 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
 }
 
 int HostApp::Run() {
+#if DEBUG_CONSOLE
+    HANDLE hConsoleReader = StartConsoleReader();
+#endif
+
     MSG msg;
     while (GetMessageW(&msg, nullptr, 0, 0)) {
+#if DEBUG_CONSOLE
+        if (msg.hwnd == nullptr && msg.message == WM_APP_CONSOLE_CMD) {
+            const wchar_t* cmd = reinterpret_cast<const wchar_t*>(msg.lParam);
+            RunConsoleCommand(cmd, &m_moduleManager, m_mainWindow, m_hInstance);
+            free(const_cast<wchar_t*>(cmd));
+            continue;
+        }
+#endif
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+#if DEBUG_CONSOLE
+    StopConsoleReader(hConsoleReader);
+#endif
 
     m_moduleManager.ShutdownAllModules();
     timeEndPeriod(1);

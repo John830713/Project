@@ -20,6 +20,7 @@ CPP_OBJS = \
 	main.o \
 	HostApp.o \
 	Core/ConfigManager.o \
+	Core/DebugConsole.o \
 	Core/InputManager.o \
 	Core/Logger.o \
 	Core/ModuleManager.o \
@@ -67,6 +68,10 @@ all: $(TARGET)
 
 debug: CXXFLAGS_EXTRA += -DDEBUG_CONSOLE=1
 debug: clean all
+
+debug-console: CXXFLAGS_EXTRA += -DDEBUG_CONSOLE=1
+debug-console: LIBS_EXTRA += -Wl,-subsystem,console
+debug-console: clean all
 
 $(TARGET): $(ALL_OBJS)
 	$(CXX) $(CXXFLAGS) $(ALL_OBJS) -o $(TARGET) $(LIBS) $(LIBS_EXTRA)
