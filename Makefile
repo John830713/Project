@@ -62,16 +62,9 @@ endif
 
 DEPS = $(CPP_OBJS:.o=.d)
 
-.PHONY: all test debug clean rebuild distclean
+.PHONY: all test clean rebuild distclean
 
 all: $(TARGET)
-
-debug: CXXFLAGS_EXTRA += -DDEBUG_CONSOLE=1
-debug: clean all
-
-debug-console: CXXFLAGS_EXTRA += -DDEBUG_CONSOLE=1
-debug-console: LIBS_EXTRA += -Wl,-subsystem,console
-debug-console: clean all
 
 $(TARGET): $(ALL_OBJS)
 	$(CXX) $(CXXFLAGS) $(ALL_OBJS) -o $(TARGET) $(LIBS) $(LIBS_EXTRA)
