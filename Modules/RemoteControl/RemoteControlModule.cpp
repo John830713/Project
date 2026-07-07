@@ -8,6 +8,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <shobjidl.h>
 #include <mstcpip.h>
 #include <cstdio>
 #include <cwchar>
@@ -36,7 +37,7 @@ void RemoteControlModule::InitializeDefinitions() {
         { L"TargetIP",          L"Controller IP (to connect)",     ConfigValueType::String, L"0.0.0.0",  0, 0 },
         { L"TargetPort",        L"Controller Port (to connect)",   ConfigValueType::Int,    L"5500",     1024, 65535 },
         { L"ControllerPw",      L"Auth Password (to send)",        ConfigValueType::String, L"changeme", 0, 0 },
-        { L"SavePath",          L"Save Path",                      ConfigValueType::String, L"D:\\Temp", 0, 0 },
+        { L"SavePath",          L"Save Path",                      ConfigValueType::Directory, L"D:\\Temp", 0, 0 },
         { L"AutoStart",         L"Auto Start",                     ConfigValueType::Bool,   L"0",        0, 1 },
     };
 }
@@ -837,10 +838,20 @@ void RemoteControlModule::ExecuteDropAction(int actionId, const DropContext& ctx
 //==============================================================================
 
 std::vector<ContextMenuItem> RemoteControlModule::GetContextMenuItems() const {
-    if (m_running) {
-        return { { kMenuStop, TranslationService::Get()->Tr(L"RemoteControl", L"Stop Remote Control") } };
-    }
-    return { { kMenuStart, TranslationService::Get()->Tr(L"RemoteControl", L"Start Remote Control") } };
+    std::vector<ContextMenuItem> items;
+
+    items.push_back({ m_running ? kMenuStop : kMenuStart,
+        TranslationService::Get()->Tr(L"RemoteControl",
+            m_running ? L"Stop Remote Control" : L"Start Remote Control") });
+
+    items.push_back({ 0, L"", MF_SEPARATOR });
+
+    std::wstring savePath = GetStringValue(L"SavePath", L"D:\\Temp");
+    items.push_back({ kMenuSelectPath,
+        TranslationService::Get()->Tr(L"RemoteControl", L"Select Save Path..."),
+        MF_STRING, savePath });
+
+    return items;
 }
 
 void RemoteControlModule::ExecuteContextMenuItem(int itemId) {
@@ -848,5 +859,50 @@ void RemoteControlModule::ExecuteContextMenuItem(int itemId) {
         StartRemoteControl();
     } else if (itemId == kMenuStop) {
         StopRemoteControl();
+    } else if (itemId == kMenuSelectPath) {
+        OpenSavePathDialog();
+    }
+}
+
+void RemoteControlModule::OpenSavePathDialog() {
+    HWND hParent = GetActiveWindow();
+    if (!hParent) hParent = GetDesktopWindow();
+
+    std::wstring currentPath = GetStringValue(L"SavePath", L"D:\\Temp");
+
+    IFileOpenDialog* pDlg = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+        CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg));
+    if (SUCCEEDED(hr) && pDlg) {
+        DWORD flags;
+        pDlg->GetOptions(&flags);
+        pDlg->SetOptions(flags | FOS_PICKFOLDERS);
+
+        if (!currentPath.empty()) {
+            IShellItem* pFolder = nullptr;
+            hr = SHCreateItemFromParsingName(currentPath.c_str(), nullptr,
+                                              IID_PPV_ARGS(&pFolder));
+            if (SUCCEEDED(hr) && pFolder) {
+                pDlg->SetFolder(pFolder);
+                pFolder->Release();
+            }
+        }
+
+        hr = pDlg->Show(hParent);
+        if (SUCCEEDED(hr)) {
+            IShellItem* pItem = nullptr;
+            hr = pDlg->GetResult(&pItem);
+            if (SUCCEEDED(hr) && pItem) {
+                PWSTR pszPath = nullptr;
+                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath);
+                if (SUCCEEDED(hr) && pszPath) {
+                    SetValue(L"SavePath", pszPath);
+                    SaveConfig();
+                    CoTaskMemFree(pszPath);
+                }
+                pItem->Release();
+            }
+        }
+        pDlg->Release();
     }
 }

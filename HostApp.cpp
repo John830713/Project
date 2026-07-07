@@ -6,14 +6,19 @@
 #include "Core/DebugConsole.h"
 #include "GeneratedModuleRegistry.h"
 
+#include <objbase.h>
 #include <mmsystem.h>
 #include <filesystem>
 #include <fstream>
 
 namespace fs = std::filesystem;
 
-HostApp::HostApp() : m_hInstance(nullptr), m_mainWindow(nullptr), m_window(nullptr) {}
-HostApp::~HostApp() { delete m_window; }
+HostApp::HostApp()
+    : m_hInstance(nullptr), m_mainWindow(nullptr), m_window(nullptr), m_comInitialized(false) {}
+HostApp::~HostApp() {
+    if (m_comInitialized) CoUninitialize();
+    delete m_window;
+}
 
 static void SetDpiAware() {
     HMODULE h = LoadLibraryW(L"shcore.dll");
@@ -30,6 +35,13 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
     SetDpiAware();
     timeBeginPeriod(1);
     m_hInstance = hInstance;
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(hr)) {
+        Logger::Write(L"Warning", L"COM initialization failed.");
+    } else {
+        m_comInitialized = (hr == S_OK);
+    }
 
     ConfigManager::Initialize(hInstance);
     Logger::Initialize(hInstance);

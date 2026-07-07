@@ -40,6 +40,12 @@ public:
     std::vector<ContextMenuItem> GetContextMenuItems() const;
     bool ExecuteContextMenuItem(int uniqueId);
 
+    struct ModuleMenuGroup {
+        std::wstring displayName;
+        std::vector<ContextMenuItem> items;
+    };
+    std::vector<ModuleMenuGroup> GetMenuGroups() const;
+
     //--- Module enumeration ---
     const std::vector<IFeatureModule*>& GetAllModules() const { return m_modules; }
 

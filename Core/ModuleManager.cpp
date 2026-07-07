@@ -100,13 +100,36 @@ std::vector<ContextMenuItem> ModuleManager::GetContextMenuItems() const {
     for (auto* module : m_modules) {
         std::vector<ContextMenuItem> items = module->GetContextMenuItems();
         for (const auto& item : items) {
-            result.push_back({ uniqueId, item.label });
+            result.push_back({ uniqueId, item.label, item.flags });
             m_menuRoutes.push_back({ module, item.itemId });
             ++uniqueId;
         }
     }
 
     return result;
+}
+
+std::vector<ModuleManager::ModuleMenuGroup> ModuleManager::GetMenuGroups() const {
+    std::vector<ModuleMenuGroup> groups;
+    m_menuRoutes.clear();
+    int uniqueId = 0;
+
+    for (auto* module : m_modules) {
+        auto items = module->GetContextMenuItems();
+        if (!items.empty()) {
+            ModuleMenuGroup group;
+            group.displayName = module->GetDisplayName();
+            group.items.reserve(items.size());
+            for (const auto& item : items) {
+                group.items.push_back({ uniqueId, item.label, item.flags, item.tooltip });
+                m_menuRoutes.push_back({ module, item.itemId });
+                ++uniqueId;
+            }
+            groups.push_back(std::move(group));
+        }
+    }
+
+    return groups;
 }
 
 bool ModuleManager::ExecuteContextMenuItem(int uniqueId) {

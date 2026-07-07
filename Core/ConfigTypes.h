@@ -11,7 +11,8 @@
 enum class ConfigValueType {
     Bool,
     Int,
-    String
+    String,
+    Directory
 };
 
 struct ConfigFieldDefinition {

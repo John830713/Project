@@ -198,6 +198,7 @@ MainWindow::MainWindow()
       m_moveDx(1), m_moveDy(1), m_movePauseMs(0),
       m_edgeSnapped(false), m_snapEdge(SNAP_NONE), m_snapIndicator(nullptr) {
     m_hSliderPopup = nullptr;
+    m_hMenuTooltip = nullptr;
     Gdiplus::GdiplusStartupInput gsi;
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gsi, nullptr);
 }
@@ -720,6 +721,56 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_APP_RELOAD_PETCONFIG:
         ReloadPetConfig();
         return 0;
+
+    case WM_MENUSELECT: {
+        UINT cmd = LOWORD(wParam);
+        auto it = m_menuTooltips.find(cmd);
+        if (it != m_menuTooltips.end() && !it->second.empty()) {
+            if (!m_hMenuTooltip) {
+                m_hMenuTooltip = CreateWindowExW(0, TOOLTIPS_CLASS, nullptr,
+                    WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                    CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                    hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+                if (m_hMenuTooltip) {
+                    SendMessageW(m_hMenuTooltip, TTM_SETMAXTIPWIDTH, 0, 2000);
+                    TOOLINFOW ti = {};
+                    ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+                    ti.uFlags = TTF_TRACK;
+                    ti.hwnd = hwnd;
+                    ti.uId = (UINT_PTR)hwnd;
+                    ti.lpszText = const_cast<wchar_t*>(it->second.c_str());
+                    SendMessageW(m_hMenuTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
+                }
+            }
+            if (m_hMenuTooltip) {
+                POINT pt;
+                GetCursorPos(&pt);
+                SendMessageW(m_hMenuTooltip, TTM_TRACKPOSITION, 0,
+                             MAKELPARAM(pt.x, pt.y + 24));
+                TOOLINFOW ti = {};
+                ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+                ti.hwnd = hwnd;
+                ti.uId = (UINT_PTR)hwnd;
+                ti.lpszText = const_cast<wchar_t*>(it->second.c_str());
+                SendMessageW(m_hMenuTooltip, TTM_UPDATETIPTEXT, 0, (LPARAM)&ti);
+                SendMessageW(m_hMenuTooltip, TTM_TRACKACTIVATE, TRUE, (LPARAM)&ti);
+            }
+        } else {
+            if (m_hMenuTooltip) {
+                TOOLINFOW ti = {};
+                ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+                ti.hwnd = hwnd;
+                ti.uId = (UINT_PTR)hwnd;
+                SendMessageW(m_hMenuTooltip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&ti);
+            }
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
+
+    case WM_EXITMENULOOP:
+        if (m_hMenuTooltip) { DestroyWindow(m_hMenuTooltip); m_hMenuTooltip = nullptr; }
+        m_menuTooltips.clear();
+        break;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
@@ -795,12 +846,22 @@ void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     }
 
+    m_menuTooltips.clear();
     if (m_moduleManager) {
-        std::vector<ContextMenuItem> items = m_moduleManager->GetContextMenuItems();
-        if (!items.empty()) {
+        auto groups = m_moduleManager->GetMenuGroups();
+        if (!groups.empty()) {
             HMENU hFunction = CreatePopupMenu();
-            for (size_t i = 0; i < items.size(); ++i)
-                AppendMenuW(hFunction, MF_STRING, ID_MENU_BASE + static_cast<UINT>(i), items[i].label.c_str());
+            for (const auto& group : groups) {
+                HMENU hSub = CreatePopupMenu();
+                for (const auto& item : group.items) {
+                    UINT cmd = ID_MENU_BASE + static_cast<UINT>(item.itemId);
+                    AppendMenuW(hSub, item.flags, cmd, item.label.c_str());
+                    if (!item.tooltip.empty())
+                        m_menuTooltips[cmd] = item.tooltip;
+                }
+                AppendMenuW(hFunction, MF_STRING | MF_POPUP, (UINT_PTR)hSub,
+                            Tr(L"TabLabels", group.displayName.c_str()).c_str());
+            }
             AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFunction, Tr(L"Pet", L"Function").c_str());
             AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
         }
@@ -848,11 +909,8 @@ void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {
         ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Opacity (0-255)").c_str(), m_currentOpacity, 0, 255, ID_PET_OPACITY);
     } else if (cmd == ID_PET_SCALE) {
         ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Scale (%)").c_str(), m_scalePercent, 10, 500, ID_PET_SCALE);
-    } else if (cmd >= ID_MENU_BASE && cmd < ID_MENU_BASE + (m_moduleManager ? m_moduleManager->GetContextMenuItems().size() : 0)) {
-        if (m_moduleManager) {
-            auto items = m_moduleManager->GetContextMenuItems();
-            m_moduleManager->ExecuteContextMenuItem(items[cmd - ID_MENU_BASE].itemId);
-        }
+    } else if (cmd >= ID_MENU_BASE && m_moduleManager) {
+        m_moduleManager->ExecuteContextMenuItem(cmd - ID_MENU_BASE);
     }
 }
 

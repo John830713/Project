@@ -58,6 +58,7 @@ public:
 
     void StartRemoteControl();
     void StopRemoteControl();
+    void OpenSavePathDialog();
     bool IsRunning() const { return m_running; }
     COLORREF GetLedColor() const;
     void ShowLed(bool visible);
@@ -88,7 +89,7 @@ private:
     void SetLedColor(COLORREF color);
     void UpdateLedPositions();
 
-    enum { kActionStart = 1, kActionStop, kMenuStart = 200, kMenuStop = 201 };
+    enum { kActionStart = 1, kActionStop, kMenuStart = 200, kMenuStop = 201, kMenuSelectPath = 202 };
 
     HINSTANCE m_hInst = nullptr;
     IHostContext* m_host = nullptr;

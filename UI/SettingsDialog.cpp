@@ -5,6 +5,8 @@
 #include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
 
+#include <shobjidl.h>
+#include <windowsx.h>
 #include <algorithm>
 
 namespace {
@@ -198,6 +200,20 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             OnTabChanged(hwnd);
             return 0;
         }
+        if (m_hTooltip && nmhdr->hwndFrom == m_hTooltip && nmhdr->code == TTN_GETDISPINFO) {
+            auto* dispInfo = reinterpret_cast<NMTTDISPINFOW*>(lParam);
+            HWND hEdit = (HWND)dispInfo->hdr.idFrom;
+            auto kit = m_controlKeys.find(hEdit);
+            if (kit != m_controlKeys.end()) {
+                int len = GetWindowTextLengthW(hEdit);
+                if (len > 0) {
+                    m_tooltipBuf.resize(len);
+                    GetWindowTextW(hEdit, &m_tooltipBuf[0], len + 1);
+                    dispInfo->lpszText = &m_tooltipBuf[0];
+                }
+            }
+            return 0;
+        }
         break;
     }
 
@@ -221,6 +237,63 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             }
             return 0;
         }
+        if (id >= BROWSE_BTN_BASE) {
+            size_t fieldIdx = id - BROWSE_BTN_BASE;
+            std::vector<ConfigFieldDefinition> defs;
+            if (m_currentTab == 0)
+                defs = PetConfig::GetDefinitions();
+            else
+                defs = m_modules[m_currentTab - 1]->GetConfigDefinitions();
+            if (fieldIdx >= defs.size()) return 0;
+            if (defs[fieldIdx].type != ConfigValueType::Directory) return 0;
+            wchar_t currentPath[MAX_PATH] = {};
+            GetWindowTextW(m_fieldControls[fieldIdx], currentPath, MAX_PATH);
+            IFileOpenDialog* pDlg = nullptr;
+            HRESULT hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+                CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pDlg));
+            if (SUCCEEDED(hr) && pDlg) {
+                DWORD flags;
+                pDlg->GetOptions(&flags);
+                pDlg->SetOptions(flags | FOS_PICKFOLDERS);
+                if (currentPath[0]) {
+                    IShellItem* pFolder = nullptr;
+                    hr = SHCreateItemFromParsingName(currentPath, nullptr,
+                                                      IID_PPV_ARGS(&pFolder));
+                    if (SUCCEEDED(hr) && pFolder) {
+                        pDlg->SetFolder(pFolder);
+                        pFolder->Release();
+                    }
+                }
+                hr = pDlg->Show(hwnd);
+                if (SUCCEEDED(hr)) {
+                    IShellItem* pItem = nullptr;
+                    hr = pDlg->GetResult(&pItem);
+                    if (SUCCEEDED(hr) && pItem) {
+                        PWSTR pszPath = nullptr;
+                        hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszPath);
+                        if (SUCCEEDED(hr) && pszPath) {
+                            SetWindowTextW(m_fieldControls[fieldIdx], pszPath);
+                            if (m_hTooltip) {
+                                HWND hEdit = m_fieldControls[fieldIdx];
+                                m_tooltipTexts[hEdit] = pszPath;
+                                TOOLINFOW ti = {};
+                                ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+                                ti.hwnd = hEdit;
+                                ti.uId = (UINT_PTR)hEdit;
+                                ti.lpszText = const_cast<wchar_t*>(
+                                    m_tooltipTexts[hEdit].c_str());
+                                SendMessageW(m_hTooltip, TTM_UPDATETIPTEXT,
+                                             0, (LPARAM)&ti);
+                            }
+                            CoTaskMemFree(pszPath);
+                        }
+                        pItem->Release();
+                    }
+                }
+                pDlg->Release();
+            }
+            return 0;
+        }
         break;
     }
 
@@ -232,6 +305,56 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK SettingsDialog::EditTooltipProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    SettingsDialog* self = reinterpret_cast<SettingsDialog*>(
+        GetWindowLongPtrW(hWnd, GWLP_USERDATA));
+    if (!self) return DefWindowProcW(hWnd, msg, wParam, lParam);
+
+    auto it = self->m_origEditProcs.find(hWnd);
+    WNDPROC origProc = (it != self->m_origEditProcs.end()) ? it->second : nullptr;
+
+    DBG(L"EditTP: msg=0x%x hWnd=%p", msg, (void*)hWnd);
+    switch (msg) {
+    case WM_MOUSEMOVE: {
+        if (!self->m_hTooltip) { DBG(L"EditTP: no tooltip"); break; }
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hWnd, 0 };
+        TrackMouseEvent(&tme);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        ClientToScreen(hWnd, &pt);
+        TOOLINFOW ti = {};
+        ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+        ti.hwnd = hWnd;
+        ti.uId = (UINT_PTR)hWnd;
+        SendMessageW(self->m_hTooltip, TTM_TRACKPOSITION, 0,
+                     MAKELPARAM(pt.x, pt.y + 20));
+        BOOL act = (BOOL)SendMessageW(self->m_hTooltip, TTM_TRACKACTIVATE,
+                                       TRUE, (LPARAM)&ti);
+        DBG(L"EditTP: MOUSEMOVE pt=%d,%d act=%d", pt.x, pt.y, act);
+        break;
+    }
+    case WM_MOUSELEAVE: {
+        if (!self->m_hTooltip) break;
+        POINT pt;
+        GetCursorPos(&pt);
+        RECT rc;
+        GetWindowRect(hWnd, &rc);
+        DBG(L"EditTP: MOUSELEAVE pt=%d,%d rc=%d,%d-%d,%d",
+            pt.x, pt.y, rc.left, rc.top, rc.right, rc.bottom);
+        if (PtInRect(&rc, pt)) { DBG(L"EditTP:  still inside"); break; }
+        TOOLINFOW ti = {};
+        ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+        ti.hwnd = hWnd;
+        ti.uId = (UINT_PTR)hWnd;
+        SendMessageW(self->m_hTooltip, TTM_TRACKACTIVATE, FALSE, (LPARAM)&ti);
+        DBG(L"EditTP:  deactivated");
+        break;
+    }
+    }
+
+    return origProc ? CallWindowProcW(origProc, hWnd, msg, wParam, lParam)
+                    : DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
 void SettingsDialog::SetupTabs(HWND hwnd) {
@@ -272,10 +395,16 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
 
     for (auto h : m_fieldLabels) if (IsWindow(h)) DestroyWindow(h);
     for (auto h : m_fieldControls) if (IsWindow(h)) DestroyWindow(h);
+    for (auto h : m_browseBtns) if (IsWindow(h)) DestroyWindow(h);
+    if (m_hTooltip) { DestroyWindow(m_hTooltip); m_hTooltip = nullptr; }
     m_fieldLabels.clear();
     m_fieldControls.clear();
+    m_browseBtns.clear();
+    m_browseBtnEditIdx.clear();
     m_controlKeys.clear();
     m_controlTypes.clear();
+    m_origEditProcs.clear();
+    m_tooltipTexts.clear();
     m_scrollPos = 0;
 
     int sel = TabCtrl_GetCurSel(m_hTab);
@@ -344,6 +473,55 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
                 hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
             SendMessageW(hCtrl, BM_SETCHECK, (valText == L"1") ? BST_CHECKED : BST_UNCHECKED, 0);
             if (m_hFont) SendMessageW(hCtrl, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+            break;
+        }
+        case ConfigValueType::Directory: {
+            int btnW = 64;
+            int ctrlX = MARGIN + LABEL_W + CONTROL_MARGIN;
+            int ctrlW = rc.right - ctrlX - MARGIN - btnW - 4 - 30; // 30px breathing room after button
+            if (ctrlW < 50) ctrlW = 50;
+
+            hCtrl = CreateWindowW(L"EDIT", valText.c_str(),
+                WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
+                ctrlX, baseY + (int)i * FIELD_SPACING, ctrlW, FIELD_H,
+                hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (m_hFont) SendMessageW(hCtrl, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+
+            HWND hBtn = CreateWindowW(L"BUTTON", L"Browse...",
+                WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                ctrlX + ctrlW + 4, baseY + (int)i * FIELD_SPACING, btnW, FIELD_H,
+                hwnd, (HMENU)(BROWSE_BTN_BASE + i), GetModuleHandleW(nullptr), nullptr);
+            if (m_hFont) SendMessageW(hBtn, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+            m_browseBtns.push_back(hBtn);
+            m_browseBtnEditIdx.push_back(i);
+
+            if (!m_hTooltip) {
+                m_hTooltip = CreateWindowExW(0, TOOLTIPS_CLASS, nullptr,
+                    WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                    CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                    hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+                DBG(L"Settings: tooltip hwnd=%p error=%d",
+                    (void*)m_hTooltip, (int)GetLastError());
+                if (m_hTooltip) {
+                    SendMessageW(m_hTooltip, TTM_SETMAXTIPWIDTH, 0, 2000);
+                }
+            }
+            if (m_hTooltip && hCtrl) {
+                m_tooltipTexts[hCtrl] = valText;
+                TOOLINFOW ti = {};
+                ti.cbSize = sizeof(TOOLINFOW) - sizeof(void*);
+                ti.uFlags = TTF_TRACK;
+                ti.hwnd = hCtrl;
+                ti.uId = (UINT_PTR)hCtrl;
+                ti.lpszText = const_cast<wchar_t*>(m_tooltipTexts[hCtrl].c_str());
+                BOOL ok = (BOOL)SendMessageW(m_hTooltip, TTM_ADDTOOL, 0, (LPARAM)&ti);
+                DBG(L"Settings: TTM_ADDTOOL edit=%p hwnd=%p ok=%d text='%s'",
+                    (void*)hCtrl, (void*)hwnd, ok, ti.lpszText);
+
+                m_origEditProcs[hCtrl] = (WNDPROC)SetWindowLongPtrW(hCtrl,
+                    GWLP_WNDPROC, (LONG_PTR)SettingsDialog::EditTooltipProc);
+                SetWindowLongPtrW(hCtrl, GWLP_USERDATA, (LONG_PTR)this);
+            }
             break;
         }
         case ConfigValueType::Int:
@@ -496,11 +674,31 @@ void SettingsDialog::RepositionFields() {
                 cw, 0, SWP_NOZORDER | SWP_NOSIZE);
         } else {
             int x = MARGIN + LABEL_W + CONTROL_MARGIN;
-            int cw = rc.right - x - MARGIN;
+            int cw;
+            if (type == ConfigValueType::Directory) {
+                cw = rc.right - x - MARGIN - 64 - 4 - 30;
+            } else {
+                cw = rc.right - x - MARGIN;
+            }
             if (cw < 50) cw = 50;
             SetWindowPos(h, nullptr, x, baseY + (int)i * FIELD_SPACING,
                 cw, FIELD_H, SWP_NOZORDER);
         }
+    }
+
+    for (size_t j = 0; j < m_browseBtns.size(); ++j) {
+        HWND hBtn = m_browseBtns[j];
+        if (!IsWindow(hBtn)) continue;
+        size_t editIdx = m_browseBtnEditIdx[j];
+        if (editIdx >= m_fieldControls.size()) continue;
+        HWND hEdit = m_fieldControls[editIdx];
+        if (!IsWindow(hEdit)) continue;
+        RECT rcEdit;
+        GetWindowRect(hEdit, &rcEdit);
+        POINT pt = { rcEdit.left, rcEdit.top };
+        ScreenToClient(m_hwnd, &pt);
+        SetWindowPos(hBtn, nullptr, pt.x + (rcEdit.right - rcEdit.left) + 4, pt.y,
+            64, FIELD_H, SWP_NOZORDER);
     }
 
     UpdateScrollBar();

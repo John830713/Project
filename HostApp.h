@@ -40,4 +40,5 @@ private:
     MainWindow* m_window = nullptr;
     ModuleManager m_moduleManager;
     InputManager m_inputManager;
+    bool m_comInitialized = false;
 };

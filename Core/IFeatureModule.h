@@ -17,6 +17,8 @@
 struct ContextMenuItem {
     int itemId;
     std::wstring label;
+    UINT flags = MF_STRING;
+    std::wstring tooltip;
 };
 
 class IFeatureModule {

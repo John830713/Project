@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <gdiplus.h>
 #include <string>
+#include <map>
 #include <vector>
 
 class IHostContext;
@@ -59,6 +60,8 @@ private:
 
     HWND m_hwnd;
     HWND m_hSliderPopup;
+    HWND m_hMenuTooltip;
+    std::map<UINT, std::wstring> m_menuTooltips;
     IHostContext* m_host;
     ModuleManager* m_moduleManager;
     InputManager* m_inputManager;

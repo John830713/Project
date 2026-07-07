@@ -42,9 +42,17 @@ private:
     std::map<std::wstring, std::wstring> m_petEditedValues;
     std::vector<HWND> m_fieldLabels;
     std::vector<HWND> m_fieldControls;
+    std::vector<HWND> m_browseBtns;
+    std::vector<size_t> m_browseBtnEditIdx;
     std::map<HWND, std::wstring> m_controlKeys;
     std::map<HWND, ConfigValueType> m_controlTypes;
+    std::map<HWND, WNDPROC> m_origEditProcs;
+    std::map<HWND, std::wstring> m_tooltipTexts;
     HFONT m_hFont;
+    HWND m_hTooltip = nullptr;
+    std::wstring m_tooltipBuf;
+
+    static LRESULT CALLBACK EditTooltipProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     static constexpr UINT WM_APP_POPULATE = WM_APP + 1;
     static constexpr int W = 520;
@@ -57,4 +65,5 @@ private:
     static constexpr int CONTROL_W = 310;
     static constexpr int BTN_H = 26;
     static constexpr int BTN_W = 80;
+    static constexpr int BROWSE_BTN_BASE = 3000;
 };
