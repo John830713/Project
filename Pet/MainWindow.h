@@ -14,6 +14,8 @@ class InputManager;
 struct ResolvedDropAction;
 struct ContextMenuItem;
 
+enum class SliderKind { Opacity, Scale, Step, Speed };
+
 class MainWindow {
 public:
     MainWindow();
@@ -75,8 +77,10 @@ private:
         MainWindow* mainWindow;
         std::vector<PopupItem>* container;
         HWND* clearPtr;
-        SubPopupData(MainWindow* mw, std::vector<PopupItem>* c, HWND* cp = nullptr)
-            : mainWindow(mw), container(c), clearPtr(cp) {}
+        int hoveredItem;
+        int popupWidth;
+        SubPopupData(MainWindow* mw, std::vector<PopupItem>* c, HWND* cp = nullptr, int pw = 160)
+            : mainWindow(mw), container(c), clearPtr(cp), hoveredItem(-1), popupWidth(pw) {}
     };
 
     void ShowContextPopup(HWND hwnd, POINT pt);
@@ -85,13 +89,18 @@ private:
     void CloseMovePopup();
     void CloseOpacityPopup();
     void CloseScalePopup();
+    void CloseStepPopup();
+    void CloseSpeedPopup();
     HWND CreateSubPopup(HWND parent, POINT pt, const std::vector<PopupItem>& items, int baseId, int& outHeight, HWND* storePtr = nullptr);
 
     static LRESULT CALLBACK ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
-    static void OpenSliderSubPopup(HWND hwnd, MainWindow* self, int itemIdx, int cw);
+    static void OpenSliderSubPopup(HWND hwnd, MainWindow* self,
+        POINT scr, int popupWidth,
+        int* pContextValue, int minVal, int maxVal,
+        HWND* phSelf, SliderKind kind);
 
     HWND m_hwnd;
     HWND m_hSliderPopup;
@@ -101,11 +110,15 @@ private:
     HWND m_hMovePopup;
     HWND m_hOpacityPopup;
     HWND m_hScalePopup;
+    HWND m_hStepPopup;
+    HWND m_hSpeedPopup;
 #if DEBUG_CONSOLE
     HWND m_moveTestPetPopup;
 #endif
     int m_contextOpacity;
     int m_contextScale;
+    int m_contextMoveStep;
+    int m_contextMoveSpeed;
     std::map<UINT, std::wstring> m_menuTooltips;
     IHostContext* m_host;
     ModuleManager* m_moduleManager;
