@@ -4,6 +4,10 @@
 
 #include "ModuleManager.h"
 
+#ifdef ENABLE_DEBUG_STATE
+#include "IDebugStateProvider.h"
+#endif
+
 ModuleManager::ModuleManager() {
 }
 
@@ -141,3 +145,21 @@ bool ModuleManager::ExecuteContextMenuItem(int uniqueId) {
     route.module->ExecuteContextMenuItem(route.originalItemId);
     return true;
 }
+
+#ifdef ENABLE_DEBUG_STATE
+std::wstring ModuleManager::DebugGetState() const {
+    std::wstring s;
+    s += L"=== ModuleManager ===\n";
+    s += L"Modules: " + std::to_wstring(m_modules.size()) + L"\n";
+    for (const auto* mod : m_modules) {
+        s += L"\n--- " + std::wstring(mod->GetModuleName()) + L" ---\n";
+        auto* debugMod = dynamic_cast<const IDebugStateProvider*>(mod);
+        if (debugMod) {
+            s += debugMod->DebugGetState();
+        } else {
+            s += L"  (no debug state)\n";
+        }
+    }
+    return s;
+}
+#endif

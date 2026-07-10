@@ -51,6 +51,10 @@ private:
     HFONT m_hFont;
     HWND m_hTooltip = nullptr;
     std::wstring m_tooltipBuf;
+    std::map<HWND, HWND> m_sliderValueLabels;
+    std::map<HWND, HWND> m_editToSlider;
+    int m_origOpacity = 255;
+    int m_origScale = 100;
 
     static LRESULT CALLBACK EditTooltipProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 

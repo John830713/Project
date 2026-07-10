@@ -8,7 +8,14 @@ PetConfig::Data PetConfig::Load() {
 
     data.posX = std::stoi(values[L"posX"]);
     data.posY = std::stoi(values[L"posY"]);
-    data.opacity = std::stoi(values[L"opacity"]);
+    int op = std::stoi(values[L"opacity"]);
+    if (op < 0) op = 0;
+    if (op > 255) op = 255;
+    data.opacity = op;
+    int sc = std::stoi(values[L"scalePercent"]);
+    if (sc < 25) sc = 25;
+    if (sc > 250) sc = 250;
+    data.scalePercent = sc;
     data.alwaysOnTop = values[L"alwaysOnTop"] == L"1";
     data.moveEnabled = values[L"moveEnabled"] == L"1";
     data.moveStep = std::stoi(values[L"moveStep"]);
@@ -23,6 +30,7 @@ void PetConfig::Save(const Data& data) {
     values[L"posX"] = std::to_wstring(data.posX);
     values[L"posY"] = std::to_wstring(data.posY);
     values[L"opacity"] = std::to_wstring(data.opacity);
+    values[L"scalePercent"] = std::to_wstring(data.scalePercent);
     values[L"alwaysOnTop"] = data.alwaysOnTop ? L"1" : L"0";
     values[L"moveEnabled"] = data.moveEnabled ? L"1" : L"0";
     values[L"moveStep"] = std::to_wstring(data.moveStep);
@@ -37,6 +45,7 @@ std::vector<ConfigFieldDefinition> PetConfig::GetDefinitions() {
         { L"posX", L"Position X", ConfigValueType::Int, L"-1", -1, 9999 },
         { L"posY", L"Position Y", ConfigValueType::Int, L"-1", -1, 9999 },
         { L"opacity", L"Opacity", ConfigValueType::Int, L"255", 0, 255 },
+        { L"scalePercent", L"Scale", ConfigValueType::Int, L"100", 25, 250 },
         { L"alwaysOnTop", L"Always On Top", ConfigValueType::Bool, L"1", 0, 0 },
         { L"moveEnabled", L"Move Enabled", ConfigValueType::Bool, L"0", 0, 0 },
         { L"moveStep", L"Move Step (px)", ConfigValueType::Int, L"3", 1, 50 },

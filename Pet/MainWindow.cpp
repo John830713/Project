@@ -3,7 +3,9 @@
 #include "../UI/SettingsDialog.h"
 #include "../Core/ModuleManager.h"
 #include "../Core/DropTypes.h"
+#include <cstdlib>
 #include "../Core/InputManager.h"
+#include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
 #include "../Modules/RemoteControl/RemoteControlModule.h"
 #include <windowsx.h>
@@ -41,7 +43,9 @@ static LRESULT CALLBACK SliderPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
         NONCLIENTMETRICSW ncm = { sizeof(ncm) };
         SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(ncm), &ncm, 0);
-        HFONT hFont = CreateFontIndirectW(&ncm.lfMessageFont);
+        LOGFONTW lf = ncm.lfMessageFont;
+        wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Microsoft JhengHei");
+        HFONT hFont = CreateFontIndirectW(&lf);
 
         RECT rc;
         GetClientRect(hwnd, &rc);
@@ -190,15 +194,20 @@ void MainWindow::CloseSliderPopup() {
 //==============================================================================
 
 MainWindow::MainWindow()
-    : m_hwnd(nullptr), m_host(nullptr), m_moduleManager(nullptr), m_inputManager(nullptr),
+    : m_hwnd(nullptr), m_hSliderPopup(nullptr), m_hMenuTooltip(nullptr),
+      m_hContextPopup(nullptr), m_hSubPopup(nullptr), m_hMovePopup(nullptr), m_hOpacityPopup(nullptr), m_hScalePopup(nullptr)
+#if DEBUG_CONSOLE
+      , m_moveTestPetPopup(nullptr)
+#endif
+      ,
+      m_contextOpacity(255), m_contextScale(100),
+      m_host(nullptr), m_moduleManager(nullptr), m_inputManager(nullptr),
       m_gdiplusToken(0), m_petImage(nullptr), m_originalImage(nullptr),
       m_imageWidth(0), m_imageHeight(0),
       m_moveLocked(false), m_scalePercent(100), m_currentOpacity(255),
       m_moveEnabled(false), m_moveStep(3), m_moveSpeed(200), m_moveShuttle(false),
       m_moveDx(1), m_moveDy(1), m_movePauseMs(0),
       m_edgeSnapped(false), m_snapEdge(SNAP_NONE), m_snapIndicator(nullptr) {
-    m_hSliderPopup = nullptr;
-    m_hMenuTooltip = nullptr;
     Gdiplus::GdiplusStartupInput gsi;
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gsi, nullptr);
 }
@@ -237,7 +246,7 @@ bool MainWindow::LoadPetImage() {
 }
 
 void MainWindow::ApplyWindowImage() {
-    if (!m_hwnd || !m_petImage) return;
+    if (!m_hwnd || !m_petImage) { DBG(L"ApplyWindowImage SKIP  hwnd=%d petImage=%p", !!m_hwnd, m_petImage); return; }
 
     HDC hdcScreen = GetDC(nullptr);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
@@ -286,7 +295,7 @@ bool MainWindow::Create(
     LoadPetImage();
 
     m_currentOpacity = petCfg.opacity;
-    m_scalePercent = 100;
+    m_scalePercent = petCfg.scalePercent;
     m_moveEnabled = petCfg.moveEnabled;
     m_moveStep = petCfg.moveStep;
     m_moveSpeed = petCfg.moveSpeed;
@@ -324,6 +333,11 @@ bool MainWindow::Create(
     outHwnd = m_hwnd = hwnd;
     ApplyWindowImage();
     SyncMoveState();
+
+#if DEBUG_CONSOLE
+    SetTimer(m_hwnd, 99, 3000, nullptr);
+#endif
+
     return true;
 }
 
@@ -604,6 +618,7 @@ void MainWindow::CheckEdgeSnap() {
 void MainWindow::SetOpacity(int alpha) {
     if (alpha < 0) alpha = 0;
     if (alpha > 255) alpha = 255;
+    DBG(L"SetOpacity(%d)  prev=%d  petImage=%p origImage=%p", alpha, m_currentOpacity, m_petImage, m_originalImage);
     m_currentOpacity = alpha;
     ApplyWindowImage();
     PetConfig::Data cfg = PetConfig::Load();
@@ -612,8 +627,8 @@ void MainWindow::SetOpacity(int alpha) {
 }
 
 void MainWindow::SetScale(int percent) {
-    if (percent < 10) percent = 10;
-    if (percent > 500) percent = 500;
+    if (percent < 25) percent = 25;
+    if (percent > 250) percent = 250;
     if (!m_originalImage) return;
 
     delete m_petImage;
@@ -668,6 +683,86 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_TIMER:
         if (wParam == 1) { OnMoveTimer(); return 0; }
         if (wParam == 2 && m_edgeSnapped) { CreateSnapIndicator(); ApplySnapIndicator(); return 0; }
+#if DEBUG_CONSOLE
+        if (wParam >= 99 && wParam <= 200) {
+            static int step = 0;
+            int timerId = (int)wParam;
+            KillTimer(m_hwnd, timerId);
+            DBG(L"[AUTOTEST] step=%d timerId=%d", step, timerId);
+
+            switch (step) {
+            case 0: {
+                // Open context menu at pet corner
+                RECT rc;
+                GetWindowRect(m_hwnd, &rc);
+                POINT pt = { rc.left + 4, rc.bottom - 4 };
+                if (pt.x < 0) pt.x = 0; if (pt.y < 0) pt.y = 0;
+                ShowContextPopup(m_hwnd, pt);
+                step++;
+                SetTimer(m_hwnd, 100, 600, nullptr);
+                DBG(L"[AUTOTEST] ShowContextPopup at (%d,%d)", pt.x, pt.y);
+                return 0;
+            }
+            case 1: {
+                // Click "Pet" item in context menu (i=0, y range: 4..4+26)
+                if (m_hContextPopup) {
+                    LPARAM lp = MAKELPARAM(6, 6);
+                    PostMessageW(m_hContextPopup, WM_LBUTTONDOWN, 0, lp);
+                    DBG(L"[AUTOTEST] sent LM to ctxpop for Pet item");
+                }
+                step++;
+                SetTimer(m_hwnd, 101, 800, nullptr);
+                return 0;
+            }
+            case 2: {
+                m_moveTestPetPopup = m_hSubPopup;
+                DBG(L"[AUTOTEST] saved PetPopup %p, clicking Move item", m_moveTestPetPopup);
+                if (m_moveTestPetPopup) {
+                    // "Move ▸" item at y=30..56, click at y=40
+                    PostMessageW(m_moveTestPetPopup, WM_LBUTTONDOWN, 0, MAKELPARAM(40, 42));
+                    DBG(L"[AUTOTEST] sent WM_LBUTTONDOWN to PetPopup at (40,42)");
+                }
+                step++;
+                SetTimer(m_hwnd, 102, 800, nullptr);
+                return 0;
+            }
+            case 3: {
+                HWND hMoveSub = m_hMovePopup;
+                RECT rcMove = {};
+                if (hMoveSub && IsWindow(hMoveSub)) {
+                    GetWindowRect(hMoveSub, &rcMove);
+                    DBG(L"[AUTOTEST] Move submenu %p pos=(%d,%d,%d,%d)",
+                        hMoveSub, rcMove.left, rcMove.top, rcMove.right, rcMove.bottom);
+                } else {
+                    DBG(L"[AUTOTEST] Move submenu NOT created!");
+                }
+                RECT rcPet = {};
+                if (m_moveTestPetPopup && IsWindow(m_moveTestPetPopup)) {
+                    GetWindowRect(m_moveTestPetPopup, &rcPet);
+                    DBG(L"[AUTOTEST] PetPopup %p pos=(%d,%d,%d,%d)",
+                        m_moveTestPetPopup, rcPet.left, rcPet.top, rcPet.right, rcPet.bottom);
+                }
+                if (rcMove.left && rcPet.left) {
+                    int dx = rcMove.left - rcPet.right;
+                    DBG(L"[AUTOTEST] Move x offset from PetPopup right edge: %d", dx);
+                }
+                step++;
+                SetTimer(m_hwnd, 103, 500, nullptr);
+                return 0;
+            }
+            case 4: {
+                DBG(L"[AUTOTEST] FINAL: hCtx=%p(valid=%d) hPet=%p(valid=%d) hMove=%p(valid=%d)",
+                    m_hContextPopup, m_hContextPopup ? IsWindow(m_hContextPopup) : 0,
+                    m_hSubPopup, m_hSubPopup ? IsWindow(m_hSubPopup) : 0,
+                    m_hMovePopup, m_hMovePopup ? IsWindow(m_hMovePopup) : 0);
+                DBG(L"[AUTOTEST] done, exiting");
+                PostQuitMessage(0);
+                return 0;
+            }
+            }
+            return 0;
+        }
+#endif
         break;
 
     case WM_NCRBUTTONUP:
@@ -722,6 +817,11 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         ReloadPetConfig();
         return 0;
 
+    case WM_APP_CONTEXT_ACTION:
+        DBG(L"WM_APP_CONTEXT_ACTION received");
+        CloseContextPopup();
+        return 0;
+
     case WM_MENUSELECT: {
         UINT cmd = LOWORD(wParam);
         auto it = m_menuTooltips.find(cmd);
@@ -767,6 +867,37 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
+    case WM_COMMAND: {
+        UINT cmd = LOWORD(wParam);
+        if (cmd == ID_EXIT) {
+            PostQuitMessage(0);
+        } else if (cmd == ID_SETTINGS) {
+            OpenSettings(hwnd);
+        } else if (cmd == ID_ABOUT) {
+            ShowAboutDialog(hwnd);
+        } else if (cmd == ID_PET_TOPMOST) {
+            ToggleTopmost();
+        } else if (cmd == ID_PET_MOVE_STILL) {
+            m_moveEnabled = false;
+            SyncMoveState();
+            { PetConfig::Data cfg = PetConfig::Load(); cfg.moveEnabled = false; PetConfig::Save(cfg); }
+        } else if (cmd == ID_PET_MOVE_MOVING) {
+            m_moveEnabled = true;
+            SyncMoveState();
+            { PetConfig::Data cfg = PetConfig::Load(); cfg.moveEnabled = true; PetConfig::Save(cfg); }
+        } else if (cmd == ID_PET_MOVE_STEP) {
+            ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Step (px)").c_str(), m_moveStep, 1, 50, ID_PET_MOVE_STEP);
+        } else if (cmd == ID_PET_MOVE_SPEED) {
+            ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Speed (ms)").c_str(), m_moveSpeed, 10, 1000, ID_PET_MOVE_SPEED);
+        } else if (cmd == ID_PET_MOVE_SHUTTLE) {
+            m_moveShuttle = !m_moveShuttle;
+            { PetConfig::Data cfg = PetConfig::Load(); cfg.moveShuttle = m_moveShuttle; PetConfig::Save(cfg); }
+        } else if (cmd >= ID_MENU_BASE && m_moduleManager) {
+            m_moduleManager->ExecuteContextMenuItem(cmd - ID_MENU_BASE);
+        }
+        return 0;
+    }
+
     case WM_EXITMENULOOP:
         if (m_hMenuTooltip) { DestroyWindow(m_hMenuTooltip); m_hMenuTooltip = nullptr; }
         m_menuTooltips.clear();
@@ -806,112 +937,1080 @@ void MainWindow::OnDropFiles(HWND hwnd, HDROP hDrop) {
     m_moduleManager->ExecuteDropAction(actions[(size_t)selectedIndex], ctx);
 }
 
-void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {
-    CloseSliderPopup();
-    HMENU hMenu = CreatePopupMenu();
-    if (!hMenu) return;
+//==============================================================================
+// Custom popup context menu with inline sliders
+//==============================================================================
 
-    auto Tr = [](const wchar_t* section, const wchar_t* text) {
-        return TranslationService::Get()->Tr(section, text);
+static constexpr int POPUP_ITEM_H = 26;
+static constexpr int POPUP_SEP_H = 6;
+static constexpr int POPUP_PAD = 4;
+static constexpr int POPUP_W = 220;
+static constexpr int TRACKBAR_H = 22;
+
+enum PopupHit { HIT_NONE = -1 };
+enum PopupItemKind { PIK_ACTION, PIK_SEP, PIK_SUBMENU, PIK_SLIDER };
+enum class SliderKind { Opacity, Scale };
+
+static constexpr int FILE_ID_TOPMOST = 102;
+static constexpr int FILE_ID_SETTINGS = 101;
+static constexpr int FILE_ID_ABOUT = 9999;
+static constexpr int FILE_ID_EXIT = 100;
+static constexpr int FILE_ID_MOVE_STILL = 103;
+static constexpr int FILE_ID_MOVE_MOVING = 104;
+static constexpr int FILE_ID_MOVE_STEP = 105;
+static constexpr int FILE_ID_MOVE_SPEED = 106;
+static constexpr int FILE_ID_MOVE_SHUTTLE = 107;
+
+//--- Pet submenu descriptors (Always on Top, Move ▸, ---, Opacity ▸, Scale slider) ---
+static PopupItemKind g_petKind[] = {
+    PIK_ACTION,   // 0:  Always on Top
+    PIK_SUBMENU,  // 1:  Move ▸
+    PIK_SEP,      // 2:
+    PIK_SUBMENU,  // 3:  Opacity ▸
+    PIK_SUBMENU,  // 4:  Scale ▸
+};
+static constexpr int PET_N = sizeof(g_petKind) / sizeof(g_petKind[0]);
+static constexpr int PET_SLIDERS = 0;
+static int g_petCmd[] = {
+    FILE_ID_TOPMOST, 0, 0, 0, 0
+};
+
+//--- Main popup descriptors ---
+static PopupItemKind g_popupKind[] = {
+    PIK_SUBMENU,  // 0:  Pet ▸
+    PIK_SUBMENU,  // 1:  Function ▸
+    PIK_SEP,      // 2:
+    PIK_ACTION,   // 3:  Settings...
+    PIK_ACTION,   // 4:  About...
+    PIK_SEP,      // 5:
+    PIK_ACTION,   // 6:  Exit
+};
+static constexpr int POPUP_N = sizeof(g_popupKind) / sizeof(g_popupKind[0]);
+
+static int g_popupCmd[] = {
+    0, 0, 0,
+    FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_EXIT
+};
+
+struct ContextSliderData {
+    MainWindow* mainWindow;
+    SliderKind kind;
+    int* pContextValue;
+    HWND hTrackbar;
+    int minVal;
+    int maxVal;
+    HWND* phSelf;
+    ULONGLONG creationTime;
+};
+
+static int PopupTotalH(int /*itemCount*/, int /*sliderCount*/) {
+    int h = POPUP_PAD * 2;
+    for (int i = 0; i < PET_N; i++) {
+        if (g_petKind[i] == PIK_SEP)
+            h += POPUP_SEP_H;
+        else if (g_petKind[i] == PIK_SLIDER)
+            h += TRACKBAR_H + 2;
+        else
+            h += POPUP_ITEM_H;
+    }
+    return h;
+}
+
+//--- Move submenu descriptors ---
+struct PopupSub {
+    int*    ids;
+    const wchar_t** labels;
+    int     n;
+    int     checkedId; // -1 = none
+};
+static const wchar_t* g_moveLabels[] = { L"Still", L"Move", nullptr, L"Step...", L"Speed...", nullptr, L"Shuttle" };
+static int g_moveIds[] = { FILE_ID_MOVE_STILL, FILE_ID_MOVE_MOVING, 0, FILE_ID_MOVE_STEP, FILE_ID_MOVE_SPEED, 0, FILE_ID_MOVE_SHUTTLE };
+static constexpr int MOVE_N = 7;
+
+//==============================================================================
+// ContextPopupProc
+//==============================================================================
+
+struct ContextPopupData {
+    MainWindow* mainWindow;
+    int hoveredItem;
+};
+
+LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* data = reinterpret_cast<ContextPopupData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto* self = data ? data->mainWindow : nullptr;
+
+    switch (msg) {
+    case WM_CREATE: {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        auto* d = new ContextPopupData{reinterpret_cast<MainWindow*>(cs->lpCreateParams), -1};
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(d));
+
+        HDC dc = GetDC(hwnd);
+        NONCLIENTMETRICSW nm = { sizeof(nm) };
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(nm), &nm, 0);
+        LOGFONTW lf = nm.lfMenuFont;
+        wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Microsoft JhengHei");
+        HFONT hf = CreateFontIndirectW(&lf);
+        ReleaseDC(hwnd, dc);
+        SendMessageW(hwnd, WM_SETFONT, (WPARAM)hf, TRUE);
+        break;
+    }
+
+    case WM_NCDESTROY: {
+        delete data;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        break;
+    }
+
+    case WM_ACTIVATE:
+        DBG(L"[ContextPopup] WM_ACTIVATE w=%d newActive=%p sub=%p ctx=%p",
+            LOWORD(wParam), (HWND)lParam,
+            self ? self->m_hSubPopup : 0, self ? self->m_hContextPopup : 0);
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            HWND hwndNewActive = (HWND)lParam;
+            bool match = self && (hwndNewActive == self->m_hSubPopup ||
+                hwndNewActive == self->m_hContextPopup ||
+                hwndNewActive == self->m_hOpacityPopup ||
+                hwndNewActive == self->m_hScalePopup ||
+                hwndNewActive == self->m_hMovePopup);
+            DBG(L"[ContextPopup] WA_INACTIVE match=%d newActive=%p sub=%p",
+                match, hwndNewActive, self ? self->m_hSubPopup : 0);
+            if (match) return 0;
+            DestroyWindow(hwnd);
+        }
+        return 0;
+
+    case WM_MOUSEMOVE: {
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+        TrackMouseEvent(&tme);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        int y = POPUP_PAD;
+        int newHover = -1;
+        for (int i = 0; i < POPUP_N; i++) {
+            int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+            if (pt.y >= y && pt.y < y + ih && g_popupKind[i] != PIK_SEP) {
+                newHover = i;
+                break;
+            }
+            y += ih;
+        }
+        if (newHover != data->hoveredItem) {
+            if (data->hoveredItem >= 0)
+                KillTimer(hwnd, 1);
+            data->hoveredItem = newHover;
+            InvalidateRect(hwnd, nullptr, TRUE);
+            if (newHover >= 0)
+                SetTimer(hwnd, 1, 300, nullptr);
+        }
+        return 0;
+    }
+
+    case WM_MOUSELEAVE: {
+        if (data->hoveredItem >= 0)
+            KillTimer(hwnd, 1);
+        data->hoveredItem = -1;
+        InvalidateRect(hwnd, nullptr, TRUE);
+        return 0;
+    }
+
+    case WM_TIMER: {
+        if (wParam != 1) break;
+        KillTimer(hwnd, 1);
+        int idx = data->hoveredItem;
+        if (idx < 0 || !self) break;
+        if (g_popupKind[idx] != PIK_SUBMENU) break;
+        self->CloseSubPopup();
+        int cw = POPUP_W - POPUP_PAD * 2;
+        RECT ir = { POPUP_PAD, 0, POPUP_PAD + cw, 0 };
+        {
+            int y = POPUP_PAD;
+            for (int i = 0; i <= idx; i++) {
+                int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+                if (i == idx) { ir.top = y; ir.bottom = y + ih; break; }
+                y += ih;
+            }
+        }
+        POINT scr = { ir.left, ir.top };
+        ClientToScreen(hwnd, &scr);
+        scr.x += cw + 2;
+        int subH = (idx == 0) ? PopupTotalH(PET_N, PET_SLIDERS) + 6 : 0;
+        if (scr.y + subH > GetSystemMetrics(SM_CYSCREEN))
+            scr.y = GetSystemMetrics(SM_CYSCREEN) - subH - 4;
+        if (scr.y < 0) scr.y = 4;
+
+        if (idx == 0) {
+            const wchar_t kPetClass[] = L"PetSubPopupExClass";
+            WNDCLASSW wc = {};
+            wc.lpfnWndProc = MainWindow::PetPopupProc;
+            wc.hInstance = GetModuleHandleW(nullptr);
+            wc.lpszClassName = kPetClass;
+            wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
+            RegisterClassW(&wc);
+            int pw = POPUP_W;
+            if (scr.x + pw > GetSystemMetrics(SM_CXSCREEN))
+                scr.x -= POPUP_W + pw + 4;
+            if (scr.x < 0) scr.x = 4;
+            DWORD exStyle = WS_EX_TOOLWINDOW;
+            if ((GetWindowLongPtrW(self->m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+                exStyle |= WS_EX_TOPMOST;
+            HWND hPet = CreateWindowExW(exStyle, kPetClass, L"",
+                WS_POPUP | WS_BORDER, scr.x, scr.y, pw, subH,
+                nullptr, nullptr, GetModuleHandleW(nullptr), self);
+            self->m_hSubPopup = hPet;
+            ShowWindow(hPet, SW_SHOWNA);
+        } else if (idx == 1 && self->m_moduleManager) {
+            std::vector<PopupItem> items;
+            auto groups = self->m_moduleManager->GetMenuGroups();
+            for (const auto& g : groups) {
+                if (!items.empty())
+                    items.push_back({ PopupItem::Separator });
+                for (const auto& mi : g.items) {
+                    items.push_back({ PopupItem::Action, ID_MENU_BASE + mi.itemId, mi.label });
+                    if (!mi.tooltip.empty())
+                        self->m_menuTooltips[ID_MENU_BASE + mi.itemId] = mi.tooltip;
+                }
+            }
+            int h2;
+            self->m_hSubPopup = self->CreateSubPopup(hwnd, scr, items, 0, h2);
+        }
+        return 0;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(dc, &rc, GetSysColorBrush(COLOR_MENU));
+
+        HFONT hf = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
+        if (!hf) hf = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        auto oldF = (HFONT)SelectObject(dc, hf);
+        SetBkMode(dc, TRANSPARENT);
+
+        int x = POPUP_PAD;
+        int w = rc.right - POPUP_PAD * 2;
+        int y = POPUP_PAD;
+        int hover = data ? data->hoveredItem : -1;
+
+        auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+            return TranslationService::Get()->Tr(sec, key);
+        };
+
+        for (int i = 0; i < POPUP_N; i++) {
+            switch (g_popupKind[i]) {
+            case PIK_SEP:
+                y += POPUP_SEP_H / 2;
+                PatBlt(dc, x, y, w, 1, PATCOPY);
+                y += POPUP_SEP_H / 2;
+                break;
+
+            case PIK_ACTION:
+            case PIK_SUBMENU: {
+                int ih = POPUP_ITEM_H;
+                RECT ir = { x, y, x + w, y + ih };
+                bool hl = (i == hover);
+                if (hl) {
+                    FillRect(dc, &ir, GetSysColorBrush(COLOR_HIGHLIGHT));
+                    SetTextColor(dc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                } else {
+                    SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+                }
+                std::wstring label;
+                if (g_popupKind[i] == PIK_ACTION) {
+                    switch (g_popupCmd[i]) {
+                    case FILE_ID_SETTINGS: label = Tr(L"Pet", L"Settings..."); break;
+                    case FILE_ID_ABOUT:    label = Tr(L"Pet", L"About Project..."); break;
+                    case FILE_ID_EXIT:     label = Tr(L"Pet", L"Exit"); break;
+                    }
+                } else {
+                    if (i == 0)      label = Tr(L"Pet", L"Pet");
+                    else if (i == 1) label = Tr(L"Pet", L"Function");
+                    RECT arr = { x + w - 16, y, x + w, y + POPUP_ITEM_H };
+                    DrawTextW(dc, L"\u25B8", -1, &arr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+                }
+                if (!label.empty())
+                    DrawTextW(dc, label.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                y += ih;
+                break;
+            }
+            }
+        }
+        SelectObject(dc, oldF);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_LBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        int y = POPUP_PAD;
+        int cw = POPUP_W - POPUP_PAD * 2;
+        for (int i = 0; i < POPUP_N; i++) {
+            int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+            RECT ir = { POPUP_PAD, y, POPUP_PAD + cw, y + ih };
+            if (pt.y >= ir.top && pt.y < ir.bottom) {
+                if (g_popupKind[i] == PIK_ACTION) {
+                    if (!self) break;
+                    self->HandleMessage(self->m_hwnd, WM_COMMAND, g_popupCmd[i], 0);
+                } else if (g_popupKind[i] == PIK_SUBMENU && self) {
+                    self->CloseSubPopup();
+                    POINT scr = { ir.left, ir.top };
+                    ClientToScreen(hwnd, &scr);
+                    scr.x += cw + 2;
+                    int subH = (i == 0) ? PopupTotalH(PET_N, PET_SLIDERS) + 6 : 0;
+                    if (scr.y + subH > GetSystemMetrics(SM_CYSCREEN))
+                        scr.y = GetSystemMetrics(SM_CYSCREEN) - subH - 4;
+                    if (scr.y < 0) scr.y = 4;
+
+                    if (i == 0) {
+                        const wchar_t kPetClass[] = L"PetSubPopupExClass";
+                        WNDCLASSW wc = {};
+                        wc.lpfnWndProc = MainWindow::PetPopupProc;
+                        wc.hInstance = GetModuleHandleW(nullptr);
+                        wc.lpszClassName = kPetClass;
+                        wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
+                        RegisterClassW(&wc);
+                        int pw = POPUP_W;
+                        if (scr.x + pw > GetSystemMetrics(SM_CXSCREEN))
+                            scr.x -= POPUP_W + pw + 4;
+                        if (scr.x < 0) scr.x = 4;
+                        DWORD exStyle = WS_EX_TOOLWINDOW;
+                        if ((GetWindowLongPtrW(self->m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+                            exStyle |= WS_EX_TOPMOST;
+                        HWND hPet = CreateWindowExW(exStyle, kPetClass, L"",
+                            WS_POPUP | WS_BORDER, scr.x, scr.y, pw, subH,
+                            nullptr, nullptr, GetModuleHandleW(nullptr), self);
+                        self->m_hSubPopup = hPet;
+                        ShowWindow(hPet, SW_SHOWNA);
+                    } else if (i == 1 && self->m_moduleManager) {
+                        std::vector<PopupItem> items;
+                        auto groups = self->m_moduleManager->GetMenuGroups();
+                        for (const auto& g : groups) {
+                            if (!items.empty())
+                                items.push_back({ PopupItem::Separator });
+                            for (const auto& mi : g.items) {
+                                items.push_back({ PopupItem::Action,
+                                    ID_MENU_BASE + mi.itemId, mi.label });
+                                if (!mi.tooltip.empty())
+                                    self->m_menuTooltips[ID_MENU_BASE + mi.itemId] = mi.tooltip;
+                            }
+                        }
+                        int h2;
+                        self->m_hSubPopup = self->CreateSubPopup(hwnd, scr, items, 0, h2);
+                    }
+                }
+                break;
+            }
+            y += ih;
+        }
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        DBG(L"[ContextPopup] WM_DESTROY  m_hSubPopup=%p", self ? self->m_hSubPopup : 0);
+        KillTimer(hwnd, 1);
+        if (self) {
+            self->CloseSubPopup();
+            self->m_hContextPopup = nullptr;
+        }
+        break;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+struct PetPopupData {
+    MainWindow* mainWindow;
+    int hoveredItem;
+};
+
+void MainWindow::OpenSliderSubPopup(HWND hwnd, MainWindow* self, int itemIdx, int cw) {
+    DBG(L"[OpenSliderSubPopup] enter itemIdx=%d cw=%d hwnd=%p self=%p", itemIdx, cw, hwnd, self);
+    int y = POPUP_PAD;
+    for (int i = 0; i < itemIdx; i++)
+        y += (g_petKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+    RECT ir = { POPUP_PAD, y, POPUP_PAD + cw, y + POPUP_ITEM_H };
+
+    HWND* phSelf = (itemIdx == 3) ? &self->m_hOpacityPopup : &self->m_hScalePopup;
+    int minVal = (itemIdx == 3) ? 1 : 25;
+    int maxVal = (itemIdx == 3) ? 255 : 250;
+
+    // Close the other slider if open, and the Move submenu
+    self->CloseMovePopup();
+    if (itemIdx == 3) self->CloseScalePopup();
+    else self->CloseOpacityPopup();
+
+    if (*phSelf && IsWindow(*phSelf))
+        DestroyWindow(*phSelf);
+    *phSelf = nullptr;
+
+    POINT scr = { ir.left, ir.top };
+    ClientToScreen(hwnd, &scr);
+    scr.x += cw + 2;
+    if (scr.x + 200 > GetSystemMetrics(SM_CXSCREEN))
+        scr.x -= POPUP_W + 200 + 4;
+    if (scr.x < 0) scr.x = 4;
+
+    const wchar_t kClass[] = L"PetSliderSubPopupClass";
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = MainWindow::SliderSubPopupProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kClass;
+    wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
+    RegisterClassW(&wc);
+
+    auto* d = new ContextSliderData{
+        self, (itemIdx == 3) ? SliderKind::Opacity : SliderKind::Scale,
+        (itemIdx == 3) ? &self->m_contextOpacity : &self->m_contextScale,
+        nullptr, minVal, maxVal, phSelf, GetTickCount64()
     };
 
-    HMENU hPetMenu = CreatePopupMenu();
-    if (hPetMenu) {
-        AppendMenuW(hPetMenu, MF_STRING, ID_PET_TOPMOST, Tr(L"Pet", L"Always on Top").c_str());
+    DWORD exStyle = WS_EX_TOOLWINDOW;
+    if ((GetWindowLongPtrW(self->m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+        exStyle |= WS_EX_TOPMOST;
 
-        HMENU hMove = CreatePopupMenu();
-        if (hMove) {
-            AppendMenuW(hMove, MF_STRING, ID_PET_MOVE_STILL, Tr(L"Pet", L"Still").c_str());
-            AppendMenuW(hMove, MF_STRING, ID_PET_MOVE_MOVING, Tr(L"Pet", L"Move").c_str());
-            CheckMenuRadioItem(hMove, ID_PET_MOVE_STILL, ID_PET_MOVE_MOVING,
-                               m_moveEnabled ? ID_PET_MOVE_MOVING : ID_PET_MOVE_STILL, MF_BYCOMMAND);
-            AppendMenuW(hMove, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(hMove, MF_STRING, ID_PET_MOVE_STEP, Tr(L"Pet", L"Step...").c_str());
-            AppendMenuW(hMove, MF_STRING, ID_PET_MOVE_SPEED, Tr(L"Pet", L"Speed...").c_str());
-            AppendMenuW(hMove, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(hMove, MF_STRING, ID_PET_MOVE_SHUTTLE, Tr(L"Pet", L"Shuttle").c_str());
-            if (m_moveShuttle) CheckMenuItem(hMove, ID_PET_MOVE_SHUTTLE, MF_CHECKED);
+    HWND hPop = CreateWindowExW(exStyle, kClass, L"",
+        WS_POPUP | WS_BORDER, scr.x, scr.y, 200, 52,
+        hwnd, nullptr, GetModuleHandleW(nullptr), d);
+    DBG(L"[OpenSliderSubPopup] created hPop=%p  *phSelf was %p  now = %p",
+        hPop, *phSelf, hPop);
+    *phSelf = hPop;
+    ShowWindow(hPop, SW_SHOWNA);
+    DBG(L"[OpenSliderSubPopup] done");
+}
 
-            AppendMenuW(hPetMenu, MF_STRING | MF_POPUP, (UINT_PTR)hMove, Tr(L"Pet", L"Move").c_str());
-        }
+//==============================================================================
+// PetPopupProc — submenu with hover highlight + auto-expand for submenus
+//==============================================================================
 
-        AppendMenuW(hPetMenu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(hPetMenu, MF_STRING, ID_PET_OPACITY, Tr(L"Pet", L"Opacity...").c_str());
-        AppendMenuW(hPetMenu, MF_STRING, ID_PET_SCALE, Tr(L"Pet", L"Scale...").c_str());
+LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* data = reinterpret_cast<PetPopupData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto* self = data ? data->mainWindow : nullptr;
 
-        if ((GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
-            CheckMenuItem(hPetMenu, ID_PET_TOPMOST, MF_CHECKED);
+    switch (msg) {
+    case WM_CREATE: {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        auto* d = new PetPopupData{reinterpret_cast<MainWindow*>(cs->lpCreateParams), -1};
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(d));
 
-        AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hPetMenu, Tr(L"Pet", L"Pet").c_str());
-        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        HDC dc = GetDC(hwnd);
+        NONCLIENTMETRICSW nm = { sizeof(nm) };
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(nm), &nm, 0);
+        LOGFONTW lf = nm.lfMenuFont;
+        wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Microsoft JhengHei");
+        HFONT hf = CreateFontIndirectW(&lf);
+        ReleaseDC(hwnd, dc);
+        SendMessageW(hwnd, WM_SETFONT, (WPARAM)hf, TRUE);
+        break;
     }
 
-    m_menuTooltips.clear();
-    if (m_moduleManager) {
-        auto groups = m_moduleManager->GetMenuGroups();
-        if (!groups.empty()) {
-            HMENU hFunction = CreatePopupMenu();
-            for (const auto& group : groups) {
-                HMENU hSub = CreatePopupMenu();
-                for (const auto& item : group.items) {
-                    UINT cmd = ID_MENU_BASE + static_cast<UINT>(item.itemId);
-                    AppendMenuW(hSub, item.flags, cmd, item.label.c_str());
-                    if (!item.tooltip.empty())
-                        m_menuTooltips[cmd] = item.tooltip;
-                }
-                AppendMenuW(hFunction, MF_STRING | MF_POPUP, (UINT_PTR)hSub,
-                            Tr(L"TabLabels", group.displayName.c_str()).c_str());
+    case WM_NCDESTROY: {
+        delete data;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        break;
+    }
+
+    case WM_ACTIVATE:
+        DBG(L"[PetPopup] WM_ACTIVATE w=%d newActive=%p  hOp=%p hSc=%p",
+            LOWORD(wParam), (HWND)lParam,
+            self ? self->m_hOpacityPopup : 0, self ? self->m_hScalePopup : 0);
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            HWND hwndNewActive = (HWND)lParam;
+            bool match = self && (hwndNewActive == self->m_hOpacityPopup || hwndNewActive == self->m_hScalePopup ||
+                hwndNewActive == self->m_hSubPopup || hwndNewActive == self->m_hMovePopup);
+            DBG(L"[PetPopup] WA_INACTIVE match=%d  newActive=%p hOp=%p hSc=%p",
+                match, hwndNewActive, self ? self->m_hOpacityPopup : 0, self ? self->m_hScalePopup : 0);
+            if (match) return 0;
+            KillTimer(hwnd, 1);
+            if (self) {
+                if (self->m_contextOpacity != self->m_currentOpacity)
+                    self->SetOpacity(self->m_contextOpacity);
+                if (self->m_contextScale != self->m_scalePercent)
+                    self->SetScale(self->m_contextScale);
+                self->CloseMovePopup();
+                self->CloseOpacityPopup();
+                self->CloseScalePopup();
+                PostMessageW(self->m_hwnd, WM_APP_CONTEXT_ACTION, 0, 0);
+                self->m_hSubPopup = nullptr;
             }
-            AppendMenuW(hMenu, MF_STRING | MF_POPUP, (UINT_PTR)hFunction, Tr(L"Pet", L"Function").c_str());
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+            DestroyWindow(hwnd);
+        }
+        return 0;
+
+    case WM_MOUSEMOVE: {
+        TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
+        TrackMouseEvent(&tme);
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        int y = POPUP_PAD;
+        int newHover = -1;
+
+        for (int i = 0; i < PET_N; i++) {
+            int ih = (g_petKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+            if (pt.y >= y && pt.y < y + ih && g_petKind[i] != PIK_SEP) {
+                newHover = i;
+                break;
+            }
+            y += ih;
+        }
+        if (newHover != data->hoveredItem) {
+            if (data->hoveredItem >= 0)
+                KillTimer(hwnd, 1);
+            data->hoveredItem = newHover;
+            InvalidateRect(hwnd, nullptr, TRUE);
+            if (newHover >= 0)
+                SetTimer(hwnd, 1, 300, nullptr);
+        }
+        return 0;
+    }
+
+    case WM_MOUSELEAVE: {
+        if (data->hoveredItem >= 0)
+            KillTimer(hwnd, 1);
+        data->hoveredItem = -1;
+        InvalidateRect(hwnd, nullptr, TRUE);
+        return 0;
+    }
+
+    case WM_TIMER: {
+        if (wParam != 1) break;
+        DBG(L"[PetPopup] WM_TIMER hoveredItem=%d", data->hoveredItem);
+        KillTimer(hwnd, 1);
+        int idx = data->hoveredItem;
+        if (idx < 0 || !self) break;
+        if (g_petKind[idx] != PIK_SUBMENU) break;
+        int cw = POPUP_W - POPUP_PAD * 2;
+        if (idx == 1) {
+            // Move submenu — keep PetPopup alive (parallel like opacity slider)
+            int y = POPUP_PAD;
+            for (int i = 0; i < idx; i++)
+                y += (g_petKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+            RECT ir = { POPUP_PAD, y, POPUP_PAD + cw, y + POPUP_ITEM_H };
+            POINT scr = { ir.left, ir.top };
+            ClientToScreen(hwnd, &scr);
+            scr.x += cw + 2;
+            self->CloseMovePopup();
+            self->CloseOpacityPopup();
+            self->CloseScalePopup();
+            std::vector<PopupItem> items;
+            auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+                return TranslationService::Get()->Tr(sec, key);
+            };
+            for (int j = 0; j < MOVE_N; j++) {
+                if (g_moveIds[j] == 0)
+                    items.push_back({ PopupItem::Separator, 0, L"" });
+                else
+                    items.push_back({ PopupItem::Action, g_moveIds[j], Tr(L"Pet", g_moveLabels[j]) });
+            }
+            int h2;
+            self->CreateSubPopup(hwnd, scr, items, 0, h2, &self->m_hMovePopup);
+        } else if (idx == 3 || idx == 4) {
+            OpenSliderSubPopup(hwnd, self, idx, cw);
+        }
+        return 0;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(dc, &rc, GetSysColorBrush(COLOR_MENU));
+
+        HFONT hf = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
+        if (!hf) hf = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        auto oldF = (HFONT)SelectObject(dc, hf);
+        SetBkMode(dc, TRANSPARENT);
+
+        int x = POPUP_PAD;
+        int w = rc.right - POPUP_PAD * 2;
+        int y = POPUP_PAD;
+        int hover = data ? data->hoveredItem : -1;
+
+        auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+            return TranslationService::Get()->Tr(sec, key);
+        };
+
+        for (int i = 0; i < PET_N; i++) {
+            switch (g_petKind[i]) {
+            case PIK_SEP:
+                y += POPUP_SEP_H / 2;
+                PatBlt(dc, x, y, w, 1, PATCOPY);
+                y += POPUP_SEP_H / 2;
+                break;
+
+            case PIK_ACTION: {
+                int ih = POPUP_ITEM_H;
+                RECT ir = { x, y, x + w, y + ih };
+                bool hl = (i == hover);
+                if (hl) {
+                    FillRect(dc, &ir, GetSysColorBrush(COLOR_HIGHLIGHT));
+                    SetTextColor(dc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                } else {
+                    SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+                }
+                bool topmost = (g_petCmd[i] == FILE_ID_TOPMOST &&
+                    (GetWindowLongPtrW(self ? self->m_hwnd : nullptr, GWL_EXSTYLE) & WS_EX_TOPMOST));
+                std::wstring label;
+                switch (g_petCmd[i]) {
+                case FILE_ID_TOPMOST: label = Tr(L"Pet", L"Always on Top"); break;
+                }
+                if (topmost)
+                    DrawTextW(dc, L"\u2713 ", -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                ir.left += 16;
+                if (!label.empty())
+                    DrawTextW(dc, label.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                y += ih;
+                break;
+            }
+
+            case PIK_SUBMENU: {
+                int ih = POPUP_ITEM_H;
+                RECT ir = { x, y, x + w, y + ih };
+                bool hl = (i == hover);
+                if (hl) {
+                    FillRect(dc, &ir, GetSysColorBrush(COLOR_HIGHLIGHT));
+                    SetTextColor(dc, GetSysColor(COLOR_HIGHLIGHTTEXT));
+                } else {
+                    SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+                }
+                std::wstring label;
+                if (i == 1)      label = Tr(L"Pet", L"Move");
+                else if (i == 3) label = Tr(L"Pet", L"Opacity");
+                else if (i == 4) label = Tr(L"Pet", L"Scale");
+                if (!label.empty())
+                    DrawTextW(dc, label.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                RECT arr = { x + w - 16, y, x + w, y + POPUP_ITEM_H };
+                DrawTextW(dc, L"\u25B8", -1, &arr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+                y += ih;
+                break;
+            }
+
+            default:
+                y += POPUP_ITEM_H;
+                break;
+            }
+        }
+        SelectObject(dc, oldF);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_LBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        int y = POPUP_PAD;
+        int cw = POPUP_W - POPUP_PAD * 2;
+        for (int i = 0; i < PET_N; i++) {
+            int ih = (g_petKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+            RECT ir = { POPUP_PAD, y, POPUP_PAD + cw, y + ih };
+            if (pt.y >= ir.top && pt.y < ir.bottom) {
+                if (g_petKind[i] == PIK_ACTION) {
+                    if (!self) break;
+                    self->HandleMessage(self->m_hwnd, WM_COMMAND, g_petCmd[i], 0);
+                } else if (g_petKind[i] == PIK_SUBMENU && self) {
+                    if (i == 1) {
+                        POINT scr = { ir.left, ir.top };
+                        ClientToScreen(hwnd, &scr);
+                        scr.x += cw + 2;
+                        self->CloseMovePopup();
+                        self->CloseOpacityPopup();
+                        self->CloseScalePopup();
+                        std::vector<PopupItem> items;
+                        auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+                            return TranslationService::Get()->Tr(sec, key);
+                        };
+                        for (int j = 0; j < MOVE_N; j++) {
+                            if (g_moveIds[j] == 0)
+                                items.push_back({ PopupItem::Separator, 0, L"" });
+                            else
+                                items.push_back({ PopupItem::Action, g_moveIds[j], Tr(L"Pet", g_moveLabels[j]) });
+                        }
+                        int h2;
+                        self->CreateSubPopup(hwnd, scr, items, 0, h2, &self->m_hMovePopup);
+                    } else if (i == 3 || i == 4) {
+                        OpenSliderSubPopup(hwnd, self, i, cw);
+                    }
+                }
+                break;
+            }
+            y += ih;
+        }
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        DBG(L"[PetPopup] WM_DESTROY");
+        KillTimer(hwnd, 1);
+        if (self) {
+            self->CloseMovePopup();
+            self->CloseOpacityPopup();
+            self->CloseScalePopup();
+        }
+        break;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+//==============================================================================
+// SubPopupProc
+//==============================================================================
+
+LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* data = reinterpret_cast<SubPopupData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto* container = data ? data->container : nullptr;
+
+    switch (msg) {
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            DBG(L"[SubPopup] WA_INACTIVE  mainWindow=%p", data ? data->mainWindow : 0);
+            if (data && data->mainWindow) {
+                PostMessageW(data->mainWindow->m_hwnd, WM_APP_CONTEXT_ACTION, 0, 0);
+                if (data->clearPtr) *(data->clearPtr) = nullptr;
+            }
+            DestroyWindow(hwnd);
+        }
+        return 0;
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+        RECT rc; GetClientRect(hwnd, &rc);
+        FillRect(dc, &rc, GetSysColorBrush(COLOR_MENU));
+        HFONT hf = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
+        if (!hf) hf = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        auto oldF = (HFONT)SelectObject(dc, hf);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+
+        int y = POPUP_PAD;
+        int x = POPUP_PAD;
+        int w = rc.right - POPUP_PAD * 2;
+        for (const auto& item : *container) {
+            if (item.type == PopupItem::Separator) {
+                y += POPUP_SEP_H / 2;
+                PatBlt(dc, x, y, w, 1, PATCOPY);
+                y += POPUP_SEP_H / 2;
+            } else {
+                RECT ir = { x, y, x + w, y + POPUP_ITEM_H };
+                DrawTextW(dc, item.text.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+                y += POPUP_ITEM_H;
+            }
+        }
+        SelectObject(dc, oldF);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_LBUTTONDOWN: {
+        POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
+        MainWindow* self = data ? data->mainWindow : nullptr;
+
+        int y = POPUP_PAD;
+        int x = POPUP_PAD;
+        int w = POPUP_W - POPUP_PAD * 2;
+        for (const auto& item : *container) {
+            int ih = (item.type == PopupItem::Separator) ? POPUP_SEP_H : POPUP_ITEM_H;
+            RECT ir = { x, y, x + w, y + ih };
+            if (pt.y >= ir.top && pt.y < ir.bottom && item.type == PopupItem::Action) {
+                if (self) {
+                    HWND mainHwnd = self->m_hwnd;
+                    self->HandleMessage(mainHwnd, WM_COMMAND, item.id, 0);
+                }
+                if (IsWindow(hwnd))
+                    DestroyWindow(hwnd);
+                return 0;
+            }
+            y += ih;
+        }
+        return 0;
+    }
+
+    case WM_DESTROY: {
+        DBG(L"[SubPopup] WM_DESTROY  mainWindow=%p", data ? data->mainWindow : 0);
+        if (data) {
+            delete data->container;
+            delete data;
+        }
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        break;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+//==============================================================================
+// SliderSubPopupProc — generic nested popup with trackbar
+//==============================================================================
+
+LRESULT CALLBACK MainWindow::SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    auto* data = reinterpret_cast<ContextSliderData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    if (!data && msg != WM_CREATE)
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    switch (msg) {
+    case WM_CREATE: {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        auto* d = reinterpret_cast<ContextSliderData*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(d));
+
+        RECT rc; GetClientRect(hwnd, &rc);
+
+        d->hTrackbar = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | TBS_FIXEDLENGTH,
+            POPUP_PAD, POPUP_PAD + 18, rc.right - POPUP_PAD * 2, TRACKBAR_H,
+            hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        // Subclass trackbar: prevent activation changes when clicked
+        auto oldTrackProc = (WNDPROC)SetWindowLongPtrW(d->hTrackbar, GWLP_WNDPROC,
+            (LONG_PTR)+[](HWND h, UINT m, WPARAM w, LPARAM l) -> LRESULT {
+                if (m == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
+                if (m == WM_SETFOCUS) return 0;
+                auto* old = (WNDPROC)GetWindowLongPtrW(h, GWLP_USERDATA);
+                return old ? CallWindowProcW(old, h, m, w, l) : DefWindowProcW(h, m, w, l);
+            });
+        SetWindowLongPtrW(d->hTrackbar, GWLP_USERDATA, (LONG_PTR)oldTrackProc);
+
+        SendMessageW(d->hTrackbar, TBM_SETRANGE, TRUE, MAKELPARAM(d->minVal, d->maxVal));
+        SendMessageW(d->hTrackbar, TBM_SETPOS, TRUE, *d->pContextValue);
+
+        HDC dc = GetDC(hwnd);
+        NONCLIENTMETRICSW nm = { sizeof(nm) };
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(nm), &nm, 0);
+        LOGFONTW lf = nm.lfMenuFont;
+        wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Microsoft JhengHei");
+        HFONT hf = CreateFontIndirectW(&lf);
+        ReleaseDC(hwnd, dc);
+        SendMessageW(hwnd, WM_SETFONT, (WPARAM)hf, TRUE);
+        break;
+    }
+
+    case WM_MOUSEACTIVATE:
+        return MA_NOACTIVATE;
+
+    case WM_ACTIVATE:
+        DBG(L"[SliderSubPopup] WM_ACTIVATE w=%d kind=%d newActive=%p  hOp=%p hSc=%p sub=%p",
+            LOWORD(wParam), (int)data->kind, (HWND)lParam,
+            data->mainWindow ? data->mainWindow->m_hOpacityPopup : 0,
+            data->mainWindow ? data->mainWindow->m_hScalePopup : 0,
+            data->mainWindow ? data->mainWindow->m_hSubPopup : 0);
+        if (LOWORD(wParam) == WA_INACTIVE) {
+            if (!data->creationTime || GetTickCount64() - data->creationTime < 600)
+                break;
+            HWND hwndNewActive = (HWND)lParam;
+            auto* self = data->mainWindow;
+            bool match = self && (hwndNewActive == self->m_hSubPopup ||
+                hwndNewActive == self->m_hOpacityPopup ||
+                hwndNewActive == self->m_hScalePopup);
+            DBG(L"[SliderSubPopup] WA_INACTIVE check match=%d sub=%p hOp=%p hSc=%p",
+                match, self ? self->m_hSubPopup : 0,
+                self ? self->m_hOpacityPopup : 0, self ? self->m_hScalePopup : 0);
+            if (match) return 0;
+            if (self) {
+                if (data->kind == SliderKind::Opacity && *data->pContextValue != self->m_currentOpacity)
+                    self->SetOpacity(*data->pContextValue);
+                else if (data->kind == SliderKind::Scale && *data->pContextValue != self->m_scalePercent)
+                    self->SetScale(*data->pContextValue);
+                PostMessageW(self->m_hwnd, WM_APP_CONTEXT_ACTION, 0, 0);
+            }
+            *data->phSelf = nullptr;
+            DestroyWindow(hwnd);
+            return 0;
+        }
+        break;
+
+    case WM_HSCROLL: {
+        if (!data) break;
+        HWND hBar = (HWND)lParam;
+        int pos = (int)SendMessageW(hBar, TBM_GETPOS, 0, 0);
+        *data->pContextValue = pos;
+        auto* self = data->mainWindow;
+        if (self) {
+            if (data->kind == SliderKind::Opacity)
+                self->SetOpacity(pos);
+            else
+                self->SetScale(pos);
+        }
+        InvalidateRect(hwnd, nullptr, TRUE);
+        return 0;
+    }
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(hwnd, &ps);
+
+        RECT rc; GetClientRect(hwnd, &rc);
+        HBRUSH bg = GetSysColorBrush(COLOR_MENU);
+        FillRect(dc, &rc, bg);
+
+        HFONT hf = (HFONT)SendMessageW(hwnd, WM_GETFONT, 0, 0);
+        if (!hf) hf = (HFONT)GetStockObject(DEFAULT_GUI_FONT);
+        auto oldF = (HFONT)SelectObject(dc, hf);
+        SetBkMode(dc, TRANSPARENT);
+        SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+
+        auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+            return TranslationService::Get()->Tr(sec, key);
+        };
+        const wchar_t* labelKey = (data->kind == SliderKind::Opacity) ? L"Opacity" : L"Scale";
+        int val = data->pContextValue ? *data->pContextValue : 0;
+        wchar_t buf[32];
+        swprintf(buf, 32, L"%ls: %d", Tr(L"Pet", labelKey).c_str(), val);
+        RECT tr = { POPUP_PAD, 2, rc.right - POPUP_PAD, POPUP_PAD + 18 };
+        DrawTextW(dc, buf, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+
+        SelectObject(dc, oldF);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+
+    case WM_NCDESTROY: {
+        DBG(L"[SliderSubPopup] WM_NCDESTROY kind=%d", data ? (int)data->kind : -1);
+        delete data;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        return 0;
+    }
+    }
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+void MainWindow::ShowContextPopup(HWND hwnd, POINT pt) {
+    const wchar_t kClass[] = L"PetContextPopupClass";
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = ContextPopupProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kClass;
+    wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
+    RegisterClassW(&wc);
+
+    int totalH = POPUP_PAD * 2;
+    for (int i = 0; i < POPUP_N; i++)
+        totalH += (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
+    int x = pt.x, y = pt.y - totalH - 8;
+    if (y < 0) y = pt.y + 8;
+    if (x + POPUP_W > GetSystemMetrics(SM_CXSCREEN))
+        x = GetSystemMetrics(SM_CXSCREEN) - POPUP_W - 4;
+    if (x < 0) x = 4;
+
+    DBG(L"ShowContextPopup: totalH=%d pos=(%d,%d) size=(%d,%d)", totalH, x, y, POPUP_W, totalH + 6);
+
+    DWORD exStyle = WS_EX_TOOLWINDOW;
+    if ((GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+        exStyle |= WS_EX_TOPMOST;
+
+    m_hContextPopup = CreateWindowExW(exStyle, kClass, L"",
+        WS_POPUP | WS_VISIBLE | WS_BORDER,
+        x, y, POPUP_W, totalH + 6,
+        nullptr, nullptr, GetModuleHandleW(nullptr), this);
+
+    DBG(L"ShowContextPopup: m_hContextPopup=%p", m_hContextPopup);
+
+    if (m_hContextPopup)
+        SetForegroundWindow(m_hContextPopup);
+}
+
+void MainWindow::CloseContextPopup() {
+    DBG(L"CloseContextPopup  m_hContextPopup=%p  m_hSubPopup=%p  m_hOpacityPopup=%p m_hScalePopup=%p m_hMovePopup=%p",
+        m_hContextPopup, m_hSubPopup, m_hOpacityPopup, m_hScalePopup, m_hMovePopup);
+    CloseMovePopup();
+    CloseSubPopup();
+    CloseOpacityPopup();
+    CloseScalePopup();
+    if (m_hContextPopup && IsWindow(m_hContextPopup)) {
+        DBG(L"CloseContextPopup  destroying main menu %p", m_hContextPopup);
+        DestroyWindow(m_hContextPopup);
+    }
+    m_hContextPopup = nullptr;
+}
+
+void MainWindow::CloseSubPopup() {
+    if (m_hSubPopup && IsWindow(m_hSubPopup)) {
+        DestroyWindow(m_hSubPopup);
+    }
+    m_hSubPopup = nullptr;
+}
+
+void MainWindow::CloseMovePopup() {
+    if (m_hMovePopup && IsWindow(m_hMovePopup)) {
+        DestroyWindow(m_hMovePopup);
+    }
+    m_hMovePopup = nullptr;
+}
+
+void MainWindow::CloseOpacityPopup() {
+    if (m_hOpacityPopup && IsWindow(m_hOpacityPopup)) {
+        DestroyWindow(m_hOpacityPopup);
+    }
+    m_hOpacityPopup = nullptr;
+}
+
+void MainWindow::CloseScalePopup() {
+    if (m_hScalePopup && IsWindow(m_hScalePopup)) {
+        DestroyWindow(m_hScalePopup);
+    }
+    m_hScalePopup = nullptr;
+}
+
+HWND MainWindow::CreateSubPopup(HWND parent, POINT pt, const std::vector<PopupItem>& items, int /*baseId*/, int& outHeight, HWND* storePtr) {
+    if (!storePtr) storePtr = &m_hSubPopup;
+    const wchar_t kClass[] = L"PetSubPopupClass";
+    WNDCLASSW wc = {};
+    wc.lpfnWndProc = SubPopupProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = kClass;
+    wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
+    RegisterClassW(&wc);
+
+    int h = POPUP_PAD * 2;
+    int maxLabel = 0;
+    for (const auto& item : items) {
+        if (item.type == PopupItem::Separator)
+            h += POPUP_SEP_H;
+        else {
+            h += POPUP_ITEM_H;
+            int tw = item.text.size() * 8 + 16;
+            if (tw > maxLabel) maxLabel = tw;
         }
     }
 
-    AppendMenuW(hMenu, MF_STRING, ID_SETTINGS, Tr(L"Pet", L"Settings...").c_str());
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_ABOUT, Tr(L"Pet", L"About Project...").c_str());
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, ID_EXIT, Tr(L"Pet", L"Exit").c_str());
+    int w = (maxLabel < 120) ? 160 : maxLabel + 20;
+    outHeight = h;
 
-    UINT cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, nullptr);
-    DestroyMenu(hMenu);
+    if (pt.x + w > GetSystemMetrics(SM_CXSCREEN))
+        pt.x -= POPUP_W + w + 4;
+    if (pt.y + h > GetSystemMetrics(SM_CYSCREEN))
+        pt.y = GetSystemMetrics(SM_CYSCREEN) - h - 4;
+    if (pt.y < 0) pt.y = 4;
 
-    if (cmd == ID_EXIT) {
-        PostQuitMessage(0);
-    } else if (cmd == ID_SETTINGS) {
-        OpenSettings(hwnd);
-    } else if (cmd == ID_ABOUT) {
-        ShowAboutDialog(hwnd);
-    } else if (cmd == ID_PET_TOPMOST) {
-        ToggleTopmost();
-    } else if (cmd == ID_PET_MOVE_STILL) {
-        m_moveEnabled = false;
-        SyncMoveState();
-        PetConfig::Data cfg = PetConfig::Load();
-        cfg.moveEnabled = false;
-        PetConfig::Save(cfg);
-    } else if (cmd == ID_PET_MOVE_MOVING) {
-        m_moveEnabled = true;
-        SyncMoveState();
-        PetConfig::Data cfg = PetConfig::Load();
-        cfg.moveEnabled = true;
-        PetConfig::Save(cfg);
-    } else if (cmd == ID_PET_MOVE_STEP) {
-        ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Step (px)").c_str(), m_moveStep, 1, 50, ID_PET_MOVE_STEP);
-    } else if (cmd == ID_PET_MOVE_SPEED) {
-        ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Speed (ms)").c_str(), m_moveSpeed, 10, 1000, ID_PET_MOVE_SPEED);
-    } else if (cmd == ID_PET_MOVE_SHUTTLE) {
-        m_moveShuttle = !m_moveShuttle;
-        PetConfig::Data cfg = PetConfig::Load();
-        cfg.moveShuttle = m_moveShuttle;
-        PetConfig::Save(cfg);
-    } else if (cmd == ID_PET_OPACITY) {
-        ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Opacity (0-255)").c_str(), m_currentOpacity, 0, 255, ID_PET_OPACITY);
-    } else if (cmd == ID_PET_SCALE) {
-        ShowSliderPopup(hwnd, TranslationService::Get()->Tr(L"Pet", L"Scale (%)").c_str(), m_scalePercent, 10, 500, ID_PET_SCALE);
-    } else if (cmd >= ID_MENU_BASE && m_moduleManager) {
-        m_moduleManager->ExecuteContextMenuItem(cmd - ID_MENU_BASE);
+    auto* container = new std::vector<PopupItem>(items);
+    auto* userData = new SubPopupData{this, container, storePtr};
+
+    DWORD exStyle = WS_EX_TOOLWINDOW;
+    if ((GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE) & WS_EX_TOPMOST))
+        exStyle |= WS_EX_TOPMOST;
+
+    HWND hSub = CreateWindowExW(exStyle, kClass, L"",
+        WS_POPUP | WS_BORDER,
+        pt.x, pt.y, w, h,
+        nullptr, nullptr, GetModuleHandleW(nullptr), userData);
+
+    if (hSub) {
+        *storePtr = hSub;
+        SetWindowLongPtrW(hSub, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(userData));
+        ShowWindow(hSub, SW_SHOWNA);
+    } else {
+        delete container;
+        delete userData;
     }
+    return hSub;
+}
+
+void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {
+    DBG(L"OnContextMenu called, pt=(%d,%d)  curOp=%d curSc=%d  ctxPopup=%p subPopup=%p opPop=%p scPop=%p",
+        pt.x, pt.y, m_currentOpacity, m_scalePercent, m_hContextPopup, m_hSubPopup, m_hOpacityPopup, m_hScalePopup);
+    CloseSliderPopup();
+    CloseContextPopup();
+    m_contextOpacity = m_currentOpacity;
+    m_contextScale = m_scalePercent;
+    ShowContextPopup(hwnd, pt);
 }
 
 void MainWindow::OpenSettings(HWND hwnd) {

@@ -54,7 +54,12 @@ struct AutoKeyAction {
     }
 };
 
+#ifdef ENABLE_DEBUG_STATE
+#include "../../Core/IDebugStateProvider.h"
+class AutoKeyModule : public IFeatureModule, public IDebugStateProvider {
+#else
 class AutoKeyModule : public IFeatureModule {
+#endif
 public:
     AutoKeyModule();
     ~AutoKeyModule() override;
@@ -95,6 +100,36 @@ public:
 
     // Dialog
     void ShowManageDialog(HWND parent);
+
+#ifdef ENABLE_DEBUG_STATE
+    std::wstring DebugGetState() const override {
+        std::wstring s;
+        s += L"Enabled: " + GetValue(L"Enabled") + L"\n";
+        int running = 0;
+        for (const auto& a : m_actions) {
+            if (a.running != 0) ++running;
+        }
+        s += L"Actions: " + std::to_wstring(m_actions.size()) + L" total, "
+             + std::to_wstring(running) + L" running\n";
+        for (const auto& a : m_actions) {
+            s += L"  [" + std::to_wstring(a.id) + L"] " + a.name + L"\n";
+            s += L"    Keys: " + a.keys + L"\n";
+            s += L"    Interval: " + std::to_wstring(a.intervalSeconds) + L"s\n";
+            s += L"    Repeat: " + (a.repeatCount == 0 ? L"infinite" : std::to_wstring(a.repeatCount)) + L"\n";
+            s += L"    Mode: " + std::wstring(a.actionMode == 0 ? L"press_once" : L"repeat") + L"\n";
+            s += L"    Running: " + std::wstring(a.running != 0 ? L"YES" : L"no") + L"\n";
+            if (!a.triggerHotkey.empty())
+                s += L"    Hotkey: " + a.triggerHotkey + L"\n";
+        }
+        wchar_t buf[64];
+        swprintf(buf, 64, L"Hotkey HWND: 0x%p%s",
+                 m_hHotkeyWnd,
+                 (m_hHotkeyWnd && IsWindow(m_hHotkeyWnd)) ? L"" : L" (invalid)");
+        s += buf;
+        s += L"\n";
+        return s;
+    }
+#endif
 
     // Hotkey handling
     void OnHotkey(int actionId);

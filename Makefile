@@ -62,7 +62,7 @@ endif
 
 DEPS = $(CPP_OBJS:.o=.d)
 
-.PHONY: all test clean rebuild distclean
+.PHONY: all test clean debug rebuild distclean
 
 all: $(TARGET)
 
@@ -82,24 +82,32 @@ TranslationRes.o: $(TRANSLATION_OUT)
 %.o: %.rc
 	$(RC) $< -O coff -o $@
 
-TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -static-libgcc -static-libstdc++ -static
+TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1 -static-libgcc -static-libstdc++ -static
 TEST_LIBS = -luser32 -lkernel32
 
-TEST_TARGET = Tests/AutoKeyTest.exe
-TEST_SRCS = Tests/AutoKeyTest.cpp Modules/AutoKey/AutoKeyParser.cpp
+TEST_TARGETS = Tests/AutoKeyTest.exe Tests/TooltipTest.exe Tests/DebugStateTest.exe
 
-test: $(TEST_TARGET)
-	$(TEST_TARGET)
+test: $(TEST_TARGETS)
+	@for %%t in ($(TEST_TARGETS)) do (echo === %%t === && "%%t")
 
-$(TEST_TARGET): $(TEST_SRCS)
-	$(CXX) $(TEST_CXXFLAGS) -I. $(TEST_SRCS) -o $(TEST_TARGET) $(TEST_LIBS)
+Tests/TooltipTest.exe: Tests/TooltipTest.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lcomctl32
+
+Tests/AutoKeyTest.exe: Tests/AutoKeyTest.cpp Modules/AutoKey/AutoKeyParser.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS)
+
+Tests/DebugStateTest.exe: Tests/DebugStateTest.cpp Core/ModuleManager.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS)
 
 -include $(DEPS)
 
 clean:
 	-@del /f "$(TARGET)" 2>nul
-	-@for %%f in ($(ALL_OBJS)) do del /f "%%f" 2>nul
-	-@for %%f in ($(DEPS)) do del /f "%%f" 2>nul
+	-@del /f /q $(subst /,\,$(ALL_OBJS)) 2>nul
+	-@del /f /q $(subst /,\,$(DEPS)) 2>nul
+
+debug: clean
+	$(MAKE) CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1
 
 rebuild: clean all
 
@@ -108,5 +116,8 @@ distclean: clean
 	-@del /f "GeneratedIcon.ico" 2>nul
 	-@del /f "GeneratedIcon.rc" 2>nul
 	-@del /f "GeneratedIcon.o" 2>nul
-	-@del /f "Translation/zh-TW.ini" 2>nul
+	-@del /f "Translation\zh-TW.ini" 2>nul
 	-@del /f "Build.log" 2>nul
+
+testshell:
+	@echo SHELL='\'

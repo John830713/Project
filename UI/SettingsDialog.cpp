@@ -40,12 +40,15 @@ SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
     m_petEditedValues[L"posX"] = std::to_wstring(petData.posX);
     m_petEditedValues[L"posY"] = std::to_wstring(petData.posY);
     m_petEditedValues[L"opacity"] = std::to_wstring(petData.opacity);
+    m_petEditedValues[L"scalePercent"] = std::to_wstring(petData.scalePercent);
     m_petEditedValues[L"alwaysOnTop"] = petData.alwaysOnTop ? L"1" : L"0";
     m_petEditedValues[L"moveEnabled"] = petData.moveEnabled ? L"1" : L"0";
     m_petEditedValues[L"moveStep"] = std::to_wstring(petData.moveStep);
     m_petEditedValues[L"moveSpeed"] = std::to_wstring(petData.moveSpeed);
     m_petEditedValues[L"moveShuttle"] = petData.moveShuttle ? L"1" : L"0";
     m_petEditedValues[L"language"] = petData.language;
+    m_origOpacity = petData.opacity;
+    m_origScale = petData.scalePercent;
 }
 
 SettingsDialog::~SettingsDialog() {
@@ -53,7 +56,7 @@ SettingsDialog::~SettingsDialog() {
 }
 
 INT_PTR SettingsDialog::Show() {
-    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_TAB_CLASSES };
+    INITCOMMONCONTROLSEX icex = { sizeof(icex), ICC_TAB_CLASSES | ICC_BAR_CLASSES };
     InitCommonControlsEx(&icex);
 
     const wchar_t kClass[] = L"SettingsDialogClass";
@@ -159,6 +162,30 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         return 0;
     }
 
+    case WM_HSCROLL: {
+        HWND hBar = (HWND)lParam;
+        auto it = m_sliderValueLabels.find(hBar);
+        if (it != m_sliderValueLabels.end()) {
+            int pos = (int)SendMessageW(hBar, TBM_GETPOS, 0, 0);
+            wchar_t buf[8];
+            swprintf(buf, 8, L"%d", pos);
+            SetWindowTextW(it->second, buf);
+            auto kit = m_controlKeys.find(hBar);
+            DBG(L"Settings WM_HSCROLL: bar=%p pos=%d key=%s",
+                (void*)hBar, pos,
+                (kit != m_controlKeys.end()) ? kit->second.c_str() : L"?");
+            if (kit != m_controlKeys.end() && m_currentTab == 0) {
+                m_petEditedValues[kit->second] = buf;
+                if (kit->second == L"opacity") {
+                    PostMessageW(m_parent, WM_APP + 2, 110, pos);
+                } else if (kit->second == L"scalePercent") {
+                    PostMessageW(m_parent, WM_APP + 2, 111, pos);
+                }
+            }
+        }
+        return 0;
+    }
+
     case WM_VSCROLL: {
         int maxScroll = 0;
         SCROLLINFO si = { sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS };
@@ -218,6 +245,41 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     }
 
     case WM_COMMAND: {
+        if (HIWORD(wParam) == EN_KILLFOCUS) {
+            HWND hEdit = (HWND)lParam;
+            auto eit = m_editToSlider.find(hEdit);
+            if (eit != m_editToSlider.end()) {
+                HWND hBar = eit->second;
+                int len = GetWindowTextLengthW(hEdit);
+                std::wstring txt;
+                if (len > 0) { txt.resize(len); GetWindowTextW(hEdit, &txt[0], len + 1); }
+                int val = (len > 0) ? _wtoi(txt.c_str()) : 1;
+                auto kit = m_controlKeys.find(hBar);
+                if (kit != m_controlKeys.end()) {
+                    if (kit->second == L"opacity") {
+                        if (val < 1) val = 1;
+                        if (val > 255) val = 255;
+                    } else if (kit->second == L"scalePercent") {
+                        if (val < 25) val = 25;
+                        if (val > 250) val = 250;
+                    }
+                }
+                wchar_t buf[8];
+                swprintf(buf, 8, L"%d", val);
+                SetWindowTextW(hEdit, buf);
+                SendMessageW(hBar, TBM_SETPOS, TRUE, val);
+                DBG(L"Settings EN_KILLFOCUS: edit=%p slider=%p key=%s val=%d",
+                    (void*)hEdit, (void*)hBar,
+                    (kit != m_controlKeys.end()) ? kit->second.c_str() : L"?", val);
+                if (kit != m_controlKeys.end() && m_currentTab == 0) {
+                    m_petEditedValues[kit->second] = buf;
+                    if (kit->second == L"opacity")
+                        PostMessageW(m_parent, WM_APP + 2, 110, val);
+                    else if (kit->second == L"scalePercent")
+                        PostMessageW(m_parent, WM_APP + 2, 111, val);
+                }
+            }
+        }
         UINT id = LOWORD(wParam);
         if (id == 1) { OnSave(hwnd); return 0; }
         if (id == 2) { OnCancel(hwnd); return 0; }
@@ -396,6 +458,7 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
     for (auto h : m_fieldLabels) if (IsWindow(h)) DestroyWindow(h);
     for (auto h : m_fieldControls) if (IsWindow(h)) DestroyWindow(h);
     for (auto h : m_browseBtns) if (IsWindow(h)) DestroyWindow(h);
+    for (auto& kv : m_sliderValueLabels) if (IsWindow(kv.second)) DestroyWindow(kv.second);
     if (m_hTooltip) { DestroyWindow(m_hTooltip); m_hTooltip = nullptr; }
     m_fieldLabels.clear();
     m_fieldControls.clear();
@@ -405,6 +468,8 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
     m_controlTypes.clear();
     m_origEditProcs.clear();
     m_tooltipTexts.clear();
+    m_sliderValueLabels.clear();
+    m_editToSlider.clear();
     m_scrollPos = 0;
 
     int sel = TabCtrl_GetCurSel(m_hTab);
@@ -544,6 +609,29 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
                     if (langs[li] == valText) selIdx = (int)li;
                 }
                 SendMessageW(hCtrl, CB_SETCURSEL, selIdx, 0);
+            } else if (m_currentTab == 0 && (def.key == L"opacity" || def.key == L"scalePercent")) {
+                int val = std::stoi(valText);
+                int trbW = ctrlW - 50;
+                int minVal = (def.key == L"scalePercent") ? 25 : 1;
+                int maxVal = (def.key == L"scalePercent") ? 250 : 255;
+                hCtrl = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
+                    WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | TBS_FIXEDLENGTH,
+                    ctrlX, baseY + (int)i * FIELD_SPACING + 2, trbW, 22,
+                    hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+                SendMessageW(hCtrl, TBM_SETRANGE, TRUE, MAKELPARAM(minVal, maxVal));
+                SendMessageW(hCtrl, TBM_SETPOS, TRUE, val);
+                wchar_t valBuf[8];
+                swprintf(valBuf, 8, L"%d", val);
+                DWORD valStyle = WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER | ES_CENTER;
+                HWND hVal = CreateWindowW(L"EDIT", valBuf, valStyle,
+                    ctrlX + trbW + 4, baseY + (int)i * FIELD_SPACING + 3, 40, 20,
+                    hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+                if (m_hFont) SendMessageW(hVal, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+                m_sliderValueLabels[hCtrl] = hVal;
+                m_editToSlider[hVal] = hCtrl;
+                DBG(L"Settings: %s trackbar=%p valLabel=%p(EDIT) x=%d y=%d trbW=%d",
+                    def.key.c_str(), (void*)hCtrl, (void*)hVal,
+                    ctrlX + trbW + 4, baseY + (int)i * FIELD_SPACING + 3, trbW);
             } else {
                 hCtrl = CreateWindowW(L"EDIT", valText.c_str(),
                     WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -623,9 +711,16 @@ void SettingsDialog::ReadFieldsFromControls() {
                     SendMessageW(hCtrl, CB_GETLBTEXT, sel, (LPARAM)&val[0]);
                 }
             } else {
-                int len = GetWindowTextLengthW(hCtrl);
-                val.resize((size_t)len);
-                GetWindowTextW(hCtrl, &val[0], len + 1);
+                wchar_t cls[32] = {};
+                GetClassNameW(hCtrl, cls, 32);
+                if (wcscmp(cls, L"msctls_trackbar32") == 0) {
+                    int pos = (int)SendMessageW(hCtrl, TBM_GETPOS, 0, 0);
+                    val = std::to_wstring(pos);
+                } else {
+                    int len = GetWindowTextLengthW(hCtrl);
+                    val.resize((size_t)len);
+                    GetWindowTextW(hCtrl, &val[0], len + 1);
+                }
             }
         }
 
@@ -659,9 +754,10 @@ void SettingsDialog::RepositionFields() {
         auto tit = m_controlTypes.find(h);
         ConfigValueType type = (tit != m_controlTypes.end()) ? tit->second : ConfigValueType::String;
 
-        wchar_t cls[16] = {};
-        GetClassNameW(h, cls, 16);
+        wchar_t cls[32] = {};
+        GetClassNameW(h, cls, 32);
         bool isCombo = (wcscmp(cls, L"ComboBox") == 0);
+        bool isTrackbar = (wcscmp(cls, L"msctls_trackbar32") == 0);
 
         if (type == ConfigValueType::Bool) {
             SetWindowPos(h, nullptr, MARGIN, baseY + (int)i * FIELD_SPACING,
@@ -672,6 +768,22 @@ void SettingsDialog::RepositionFields() {
             if (cw < 50) cw = 50;
             SetWindowPos(h, nullptr, x, baseY + (int)i * FIELD_SPACING,
                 cw, 0, SWP_NOZORDER | SWP_NOSIZE);
+        } else if (isTrackbar) {
+            int x = MARGIN + LABEL_W + CONTROL_MARGIN;
+            int cw = rc.right - x - MARGIN - 50;
+            if (cw < 50) cw = 50;
+            SetWindowPos(h, nullptr, x, baseY + (int)i * FIELD_SPACING + 2,
+                cw, 22, SWP_NOZORDER);
+            auto lit = m_sliderValueLabels.find(h);
+            if (lit != m_sliderValueLabels.end() && IsWindow(lit->second)) {
+                SetWindowPos(lit->second, nullptr, x + cw + 4,
+                    baseY + (int)i * FIELD_SPACING + 3, 40, 20, SWP_NOZORDER);
+                wchar_t cls[32] = {};
+                GetClassNameW(lit->second, cls, 32);
+                DBG(L"Reposition: slider=%p valLabel=%p cls=%s x=%d y=%d w=%d",
+                    (void*)h, (void*)lit->second, cls, x + cw + 4,
+                    baseY + (int)i * FIELD_SPACING + 3, cw);
+            }
         } else {
             int x = MARGIN + LABEL_W + CONTROL_MARGIN;
             int cw;
@@ -748,6 +860,7 @@ void SettingsDialog::OnSave(HWND hwnd) {
     petData.posX = getInt(L"posX", -1);
     petData.posY = getInt(L"posY", -1);
     petData.opacity = getInt(L"opacity", 255);
+    petData.scalePercent = getInt(L"scalePercent", 100);
     petData.alwaysOnTop = getBool(L"alwaysOnTop", true);
     petData.moveEnabled = getBool(L"moveEnabled", false);
     petData.moveStep = getInt(L"moveStep", 3);
@@ -778,5 +891,12 @@ void SettingsDialog::OnSave(HWND hwnd) {
 }
 
 void SettingsDialog::OnCancel(HWND hwnd) {
+    DBG(L"Settings OnCancel: restoring origOpacity=%d origScale=%d", m_origOpacity, m_origScale);
+    PetConfig::Data cfg = PetConfig::Load();
+    cfg.opacity = m_origOpacity;
+    cfg.scalePercent = m_origScale;
+    PetConfig::Save(cfg);
+    SendMessageW(m_parent, WM_APP + 2, 110, m_origOpacity);
+    SendMessageW(m_parent, WM_APP + 2, 111, m_origScale);
     DestroyWindow(hwnd);
 }

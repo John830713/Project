@@ -49,6 +49,11 @@ public:
     //--- Module enumeration ---
     const std::vector<IFeatureModule*>& GetAllModules() const { return m_modules; }
 
+#ifdef ENABLE_DEBUG_STATE
+    //--- Debug state (compile-time: mingw32-make CXXFLAGS_EXTRA=-DENABLE_DEBUG_STATE=1) ---
+    std::wstring DebugGetState() const;
+#endif
+
 private:
     struct MenuRoute {
         IFeatureModule* module;

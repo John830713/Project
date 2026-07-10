@@ -88,9 +88,19 @@ if errorlevel 1 (
     exit /b 1
 )
 
+set "MAKE_FLAGS="
+if /I "%BUILD_MODE%"=="-debug" set "MAKE_FLAGS=CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1"
+if /I "%BUILD_MODE%"=="debug" set "MAKE_FLAGS=CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1"
+
+if defined MAKE_FLAGS (
+    echo [INFO] DEBUG build mode: AllocConsole + DBG traces enabled
+) else (
+    echo [INFO] RELEASE build mode
+)
+
 echo.
 echo [INFO] Building project...
-"%MAKE_CMD%"
+"%MAKE_CMD%" %MAKE_FLAGS%
 set BUILD_RC=%ERRORLEVEL%
 
 if not "%BUILD_RC%"=="0" (

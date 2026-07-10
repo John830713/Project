@@ -10,6 +10,7 @@ public:
         int posX = -1;
         int posY = -1;
         int opacity = 255;
+        int scalePercent = 100;
         bool alwaysOnTop = true;
         bool moveEnabled = false;
         int moveStep = 3;

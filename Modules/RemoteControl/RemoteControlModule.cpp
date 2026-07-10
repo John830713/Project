@@ -865,8 +865,7 @@ void RemoteControlModule::ExecuteContextMenuItem(int itemId) {
 }
 
 void RemoteControlModule::OpenSavePathDialog() {
-    HWND hParent = GetActiveWindow();
-    if (!hParent) hParent = GetDesktopWindow();
+    HWND hParent = m_host ? m_host->GetMainWindow() : GetDesktopWindow();
 
     std::wstring currentPath = GetStringValue(L"SavePath", L"D:\\Temp");
 

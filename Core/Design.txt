@@ -48,6 +48,48 @@ Custom settings UI:
     Only ReadFieldsFromControls() before opening the child dialog, leaving existing
     controls intact.
 
+AutoTest (Core/AutoTest.h):
+   - Lightweight framework for DEBUG_CONSOLE integration tests from inside the app.
+   - Each test subclasses AutoTest, overriding OnInit/OnTimer/OnMessage.
+   - Registered at file scope via static AutoTestRegistrar.
+   - AutoTestRegistry::Tick() must be called from MainWindow::HandleMessage BEFORE
+     the switch statement so it can intercept WM_TIMER.
+   - Tests use DBG() / debug_log.txt for assertions (check debug_log.txt after).
+
+   Walkthrough:
+     1) Create a new .cpp file in Tests/:
+        #include "Core/AutoTest.h"
+        class MyTest : public AutoTest {
+        public:
+            const char* Name() const override { return "MyTest"; }
+            void OnInit(AutoTestContext& ctx) override {
+                // ctx.mainHwnd = pet main window
+                SetTimer(ctx.mainHwnd, 100, 500, nullptr);
+            }
+            bool OnTimer(AutoTestContext& ctx, int tid) override {
+                if (tid == 100) {
+                    DBG(L"MyTest tick");
+                    // ... simulate something ...
+                    m_done = true;
+                    return true;
+                }
+                return false;
+            }
+        };
+        static AutoTestRegistrar g_myTest(new MyTest);
+
+     2) In MainWindow::HandleMessage, add before the switch:
+        #if DEBUG_CONSOLE
+        if (msg == WM_TIMER) {
+            AutoTestContext ctx = { hwnd, this };
+            AutoTestRegistry::Get().Tick(ctx, msg, wParam, lParam);
+        }
+        #endif
+
+     3) Build with mingw32-make debug. Tests run automatically when the
+        app starts (the message loop delivers timer messages to Tick()).
+     4) Check debug_log.txt for DBG() output and test status.
+
 Rules:
    1. Core layer must NOT depend on any specific feature module.
    2. All interfaces must stay project-neutral and reusable across projects.
