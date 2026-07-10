@@ -1948,6 +1948,10 @@ LRESULT CALLBACK MainWindow::SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wPar
                     self->SetOpacity(*data->pContextValue);
                 else if (data->kind == SliderKind::Scale && *data->pContextValue != self->m_scalePercent)
                     self->SetScale(*data->pContextValue);
+                else if (data->kind == SliderKind::Step)
+                    PostMessageW(self->m_hwnd, WM_APP_SLIDER_CHANGE, ID_PET_MOVE_STEP, *data->pContextValue);
+                else if (data->kind == SliderKind::Speed)
+                    PostMessageW(self->m_hwnd, WM_APP_SLIDER_CHANGE, ID_PET_MOVE_SPEED, *data->pContextValue);
                 PostMessageW(self->m_hwnd, WM_APP_CONTEXT_ACTION, 0, 0);
             }
             *data->phSelf = nullptr;
@@ -1965,7 +1969,7 @@ LRESULT CALLBACK MainWindow::SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wPar
         if (self) {
             if (data->kind == SliderKind::Opacity)
                 self->SetOpacity(pos);
-            else
+            else if (data->kind == SliderKind::Scale)
                 self->SetScale(pos);
         }
         InvalidateRect(hwnd, nullptr, TRUE);
@@ -1989,7 +1993,11 @@ LRESULT CALLBACK MainWindow::SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wPar
         auto Tr = [](const wchar_t* sec, const wchar_t* key) {
             return TranslationService::Get()->Tr(sec, key);
         };
-        const wchar_t* labelKey = (data->kind == SliderKind::Opacity) ? L"Opacity" : L"Scale";
+        const wchar_t* labelKey = L"";
+        if (data->kind == SliderKind::Opacity) labelKey = L"Opacity";
+        else if (data->kind == SliderKind::Scale) labelKey = L"Scale";
+        else if (data->kind == SliderKind::Step) labelKey = L"Step (px)";
+        else if (data->kind == SliderKind::Speed) labelKey = L"Speed (ms)";
         int val = data->pContextValue ? *data->pContextValue : 0;
         wchar_t buf[32];
         swprintf(buf, 32, L"%ls: %d", Tr(L"Pet", labelKey).c_str(), val);
