@@ -1419,6 +1419,10 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                     self->SetOpacity(self->m_contextOpacity);
                 if (self->m_contextScale != self->m_scalePercent)
                     self->SetScale(self->m_contextScale);
+                if (self->m_contextMoveStep != self->m_moveStep)
+                    PostMessageW(self->m_hwnd, MainWindow::WM_APP_SLIDER_CHANGE, ID_PET_MOVE_STEP, self->m_contextMoveStep);
+                if (self->m_contextMoveSpeed != self->m_moveSpeed)
+                    PostMessageW(self->m_hwnd, MainWindow::WM_APP_SLIDER_CHANGE, ID_PET_MOVE_SPEED, self->m_contextMoveSpeed);
                 self->CloseMovePopup();
                 self->CloseStepPopup();
                 self->CloseSpeedPopup();
@@ -1710,6 +1714,10 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             DBG(L"[SubPopup] WA_INACTIVE  mainWindow=%p", data ? data->mainWindow : 0);
             if (data && data->mainWindow) {
                 MainWindow* self = data->mainWindow;
+                if (self->m_contextMoveStep != self->m_moveStep)
+                    PostMessageW(self->m_hwnd, MainWindow::WM_APP_SLIDER_CHANGE, ID_PET_MOVE_STEP, self->m_contextMoveStep);
+                if (self->m_contextMoveSpeed != self->m_moveSpeed)
+                    PostMessageW(self->m_hwnd, MainWindow::WM_APP_SLIDER_CHANGE, ID_PET_MOVE_SPEED, self->m_contextMoveSpeed);
                 PostMessageW(self->m_hwnd, WM_APP_CONTEXT_ACTION, 0, 0);
                 if (data->clearPtr) *(data->clearPtr) = nullptr;
                 if (GetActiveWindow() != self->m_hStepPopup &&
