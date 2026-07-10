@@ -180,6 +180,10 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                     PostMessageW(m_parent, WM_APP + 2, 110, pos);
                 } else if (kit->second == L"scalePercent") {
                     PostMessageW(m_parent, WM_APP + 2, 111, pos);
+                } else if (kit->second == L"moveStep") {
+                    PostMessageW(m_parent, WM_APP + 2, 105, pos);
+                } else if (kit->second == L"moveSpeed") {
+                    PostMessageW(m_parent, WM_APP + 2, 106, pos);
                 }
             }
         }
@@ -256,12 +260,13 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 int val = (len > 0) ? _wtoi(txt.c_str()) : 1;
                 auto kit = m_controlKeys.find(hBar);
                 if (kit != m_controlKeys.end()) {
-                    if (kit->second == L"opacity") {
-                        if (val < 1) val = 1;
-                        if (val > 255) val = 255;
-                    } else if (kit->second == L"scalePercent") {
-                        if (val < 25) val = 25;
-                        if (val > 250) val = 250;
+                    auto defs = PetConfig::GetDefinitions();
+                    for (const auto& d : defs) {
+                        if (d.key == kit->second && d.type == ConfigValueType::Int) {
+                            if (val < d.minValue) val = d.minValue;
+                            if (val > d.maxValue) val = d.maxValue;
+                            break;
+                        }
                     }
                 }
                 wchar_t buf[8];
@@ -277,6 +282,10 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                         PostMessageW(m_parent, WM_APP + 2, 110, val);
                     else if (kit->second == L"scalePercent")
                         PostMessageW(m_parent, WM_APP + 2, 111, val);
+                    else if (kit->second == L"moveStep")
+                        PostMessageW(m_parent, WM_APP + 2, 105, val);
+                    else if (kit->second == L"moveSpeed")
+                        PostMessageW(m_parent, WM_APP + 2, 106, val);
                 }
             }
         }
@@ -609,11 +618,12 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
                     if (langs[li] == valText) selIdx = (int)li;
                 }
                 SendMessageW(hCtrl, CB_SETCURSEL, selIdx, 0);
-            } else if (m_currentTab == 0 && (def.key == L"opacity" || def.key == L"scalePercent")) {
+            } else if (m_currentTab == 0 && (def.key == L"opacity" || def.key == L"scalePercent" ||
+                def.key == L"moveStep" || def.key == L"moveSpeed")) {
                 int val = std::stoi(valText);
                 int trbW = ctrlW - 50;
-                int minVal = (def.key == L"scalePercent") ? 25 : 1;
-                int maxVal = (def.key == L"scalePercent") ? 250 : 255;
+                int minVal = def.minValue;
+                int maxVal = def.maxValue;
                 hCtrl = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
                     WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS | TBS_FIXEDLENGTH,
                     ctrlX, baseY + (int)i * FIELD_SPACING + 2, trbW, 22,
