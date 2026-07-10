@@ -2243,6 +2243,8 @@ void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {
     CloseContextPopup();
     m_contextOpacity = m_currentOpacity;
     m_contextScale = m_scalePercent;
+    m_contextMoveStep = m_moveStep;
+    m_contextMoveSpeed = m_moveSpeed;
     ShowContextPopup(hwnd, pt);
 }
 
