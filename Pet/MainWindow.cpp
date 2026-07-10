@@ -1125,7 +1125,7 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
             self ? self->m_hSubPopup : 0, self ? self->m_hContextPopup : 0);
         if (LOWORD(wParam) == WA_INACTIVE) {
             HWND hwndNewActive = (HWND)lParam;
-            bool match = self && (hwndNewActive == self->m_hSubPopup ||
+            bool match = self && hwndNewActive && (hwndNewActive == self->m_hSubPopup ||
                 hwndNewActive == self->m_hContextPopup ||
                 hwndNewActive == self->m_hOpacityPopup ||
                 hwndNewActive == self->m_hScalePopup ||
@@ -1461,7 +1461,7 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             self ? self->m_hOpacityPopup : 0, self ? self->m_hScalePopup : 0);
         if (LOWORD(wParam) == WA_INACTIVE) {
             HWND hwndNewActive = (HWND)lParam;
-            bool match = self && (hwndNewActive == self->m_hOpacityPopup || hwndNewActive == self->m_hScalePopup ||
+            bool match = self && hwndNewActive && (hwndNewActive == self->m_hOpacityPopup || hwndNewActive == self->m_hScalePopup ||
                 hwndNewActive == self->m_hSubPopup || hwndNewActive == self->m_hMovePopup ||
                 hwndNewActive == self->m_hStepPopup || hwndNewActive == self->m_hSpeedPopup);
             DBG(L"[PetPopup] WA_INACTIVE match=%d  newActive=%p hOp=%p hSc=%p",
@@ -2003,7 +2003,7 @@ LRESULT CALLBACK MainWindow::SliderSubPopupProc(HWND hwnd, UINT msg, WPARAM wPar
                 break;
             HWND hwndNewActive = (HWND)lParam;
             auto* self = data->mainWindow;
-            bool match = self && (hwndNewActive == self->m_hSubPopup ||
+            bool match = self && hwndNewActive && (hwndNewActive == self->m_hSubPopup ||
                 hwndNewActive == self->m_hOpacityPopup ||
                 hwndNewActive == self->m_hScalePopup ||
                 hwndNewActive == self->m_hMovePopup ||
