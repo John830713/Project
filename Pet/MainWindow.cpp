@@ -1659,6 +1659,18 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
     auto* container = data ? data->container : nullptr;
 
     switch (msg) {
+    case WM_CREATE: {
+        HDC dc = GetDC(hwnd);
+        NONCLIENTMETRICSW nm = { sizeof(nm) };
+        SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, sizeof(nm), &nm, 0);
+        LOGFONTW lf = nm.lfMenuFont;
+        wcscpy_s(lf.lfFaceName, LF_FACESIZE, L"Microsoft JhengHei");
+        HFONT hf = CreateFontIndirectW(&lf);
+        ReleaseDC(hwnd, dc);
+        SendMessageW(hwnd, WM_SETFONT, (WPARAM)hf, TRUE);
+        break;
+    }
+
     case WM_ACTIVATE:
         if (LOWORD(wParam) == WA_INACTIVE) {
             DBG(L"[SubPopup] WA_INACTIVE  mainWindow=%p", data ? data->mainWindow : 0);
