@@ -1507,11 +1507,13 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             ClientToScreen(hwnd, &ptSl);
             ptSl.x += cw + 2;
             if (idx == 3) {
+                self->m_contextOpacity = self->m_currentOpacity;
                 self->CloseScalePopup();
                 OpenSliderSubPopup(hwnd, self, ptSl, 200,
                     &self->m_contextOpacity, 1, 255,
                     &self->m_hOpacityPopup, SliderKind::Opacity);
             } else {
+                self->m_contextScale = self->m_scalePercent;
                 self->CloseOpacityPopup();
                 OpenSliderSubPopup(hwnd, self, ptSl, 200,
                     &self->m_contextScale, 25, 250,
@@ -1645,11 +1647,13 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                         ClientToScreen(hwnd, &ptSl);
                         ptSl.x += cw + 2;
                         if (i == 3) {
+                            self->m_contextOpacity = self->m_currentOpacity;
                             self->CloseScalePopup();
                             OpenSliderSubPopup(hwnd, self, ptSl, 200,
                                 &self->m_contextOpacity, 1, 255,
                                 &self->m_hOpacityPopup, SliderKind::Opacity);
                         } else {
+                            self->m_contextScale = self->m_scalePercent;
                             self->CloseOpacityPopup();
                             OpenSliderSubPopup(hwnd, self, ptSl, 200,
                                 &self->m_contextScale, 25, 250,
@@ -1669,6 +1673,8 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         KillTimer(hwnd, 1);
         if (self) {
             self->CloseMovePopup();
+            self->CloseStepPopup();
+            self->CloseSpeedPopup();
             self->CloseOpacityPopup();
             self->CloseScalePopup();
         }
@@ -1813,12 +1819,14 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             if (scr.x > rc.right) scr.x = rc.right - 2;
 
             if (item.id == FILE_ID_MOVE_STEP) {
+                self->m_contextMoveStep = self->m_moveStep;
                 self->CloseSpeedPopup();
                 self->CloseStepPopup();
                 OpenSliderSubPopup(hwnd, self, scr, 200,
                     &self->m_contextMoveStep, 1, 50,
                     &self->m_hStepPopup, SliderKind::Step);
             } else {
+                self->m_contextMoveSpeed = self->m_moveSpeed;
                 self->CloseStepPopup();
                 self->CloseSpeedPopup();
                 OpenSliderSubPopup(hwnd, self, scr, 200,
