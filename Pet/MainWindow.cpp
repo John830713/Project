@@ -753,10 +753,64 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 return 0;
             }
             case 4: {
-                DBG(L"[AUTOTEST] FINAL: hCtx=%p(valid=%d) hPet=%p(valid=%d) hMove=%p(valid=%d)",
-                    m_hContextPopup, m_hContextPopup ? IsWindow(m_hContextPopup) : 0,
-                    m_hSubPopup, m_hSubPopup ? IsWindow(m_hSubPopup) : 0,
-                    m_hMovePopup, m_hMovePopup ? IsWindow(m_hMovePopup) : 0);
+                m_moveTestPetPopup = m_hSubPopup;
+                // Directly create Step slider popup (bypassing hover/TrackMouseEvent
+                // which fails in headless testing because real mouse is not over window)
+                m_contextMoveStep = m_moveStep;
+                m_moveStep = 5; // starting value
+                m_contextMoveStep = m_moveStep;
+                POINT scr = {0, 0};
+                if (m_hMovePopup && IsWindow(m_hMovePopup)) {
+                    RECT rc;
+                    GetWindowRect(m_hMovePopup, &rc);
+                    scr = { rc.right + 2, rc.top + 60 };
+                }
+                CloseStepPopup();
+                CloseSpeedPopup();
+                OpenSliderSubPopup(m_hwnd, this, scr, 200,
+                    &m_contextMoveStep, 1, 50,
+                    &m_hStepPopup, SliderKind::Step);
+                step++;
+                SetTimer(m_hwnd, 104, 800, nullptr);
+                return 0;
+            }
+            case 5: {
+                HWND hStep = m_hStepPopup;
+                DBG(L"[AUTOTEST] m_hStepPopup=%p valid=%d  m_moveStep=%d  m_contextMoveStep=%d",
+                    hStep, hStep ? IsWindow(hStep) : 0, m_moveStep, m_contextMoveStep);
+                if (hStep && IsWindow(hStep)) {
+                    HWND hTrackbar = FindWindowExW(hStep, nullptr, TRACKBAR_CLASSW, nullptr);
+                    DBG(L"[AUTOTEST] trackbar=%p", hTrackbar);
+                    if (hTrackbar) {
+                        constexpr int TEST_VALUE = 42;
+                        SendMessageW(hTrackbar, TBM_SETPOS, TRUE, TEST_VALUE);
+                        SendMessageW(hStep, WM_HSCROLL, 0, (LPARAM)hTrackbar);
+                        DBG(L"[AUTOTEST] trackbar → %d, m_contextMoveStep=%d",
+                            TEST_VALUE, m_contextMoveStep);
+                    }
+                }
+                step++;
+                SetTimer(m_hwnd, 105, 300, nullptr);
+                return 0;
+            }
+            case 6: {
+                HWND hPet = m_moveTestPetPopup;
+                DBG(L"[AUTOTEST] sending WA_INACTIVE to PetPopup=%p  (StepCtx=%d  Step=%d)",
+                    hPet, m_contextMoveStep, m_moveStep);
+                if (hPet && IsWindow(hPet)) {
+                    // Use non-null lParam so it doesn't match null popup handles
+                    SendMessageW(hPet, WM_ACTIVATE, WA_INACTIVE, (LPARAM)(ULONG_PTR)1);
+                }
+                step++;
+                SetTimer(m_hwnd, 106, 500, nullptr);
+                return 0;
+            }
+            case 7: {
+                bool passed = (m_moveStep == 42);
+                DBG(L"[AUTOTEST] m_moveStep=%d  EXPECTED=42  %s",
+                    m_moveStep, passed ? L"PASS" : L"FAIL");
+                DBG(L"[AUTOTEST] final: ctx=%p pet=%p move=%p step=%p",
+                    m_hContextPopup, m_hSubPopup, m_hMovePopup, m_hStepPopup);
                 DBG(L"[AUTOTEST] done, exiting");
                 PostQuitMessage(0);
                 return 0;
