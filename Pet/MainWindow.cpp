@@ -1822,14 +1822,14 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                 self->m_contextMoveStep = self->m_moveStep;
                 self->CloseSpeedPopup();
                 self->CloseStepPopup();
-                OpenSliderSubPopup(hwnd, self, scr, 200,
+                OpenSliderSubPopup(self->m_hwnd, self, scr, 200,
                     &self->m_contextMoveStep, 1, 50,
                     &self->m_hStepPopup, SliderKind::Step);
             } else {
                 self->m_contextMoveSpeed = self->m_moveSpeed;
                 self->CloseStepPopup();
                 self->CloseSpeedPopup();
-                OpenSliderSubPopup(hwnd, self, scr, 200,
+                OpenSliderSubPopup(self->m_hwnd, self, scr, 200,
                     &self->m_contextMoveSpeed, 10, 1000,
                     &self->m_hSpeedPopup, SliderKind::Speed);
             }
