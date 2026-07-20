@@ -7,6 +7,7 @@ Shared UI components. Contains the settings dialog used by both pet config and m
 | File | Role |
 |------|------|
 | `SettingsDialog.h/cpp` | Modal settings window with Pet tab + per-module tabs |
+| `NetworkInfoDialog.h/cpp` | Network adapter/IP viewer — lists active adapters with copy-to-clipboard |
 
 ## SettingsDialog Rules
 

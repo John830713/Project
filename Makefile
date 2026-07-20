@@ -1,7 +1,7 @@
 CXX = g++
 RC = windres
 CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode $(CXXFLAGS_EXTRA)
-LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows
+LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -liphlpapi -mwindows
 
 # Auto-regenerate build/translation files if missing
 ifeq ($(wildcard GeneratedBuild.mk),)
