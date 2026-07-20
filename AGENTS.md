@@ -24,7 +24,7 @@ See [INDEX.md](INDEX.md) for the full INDEX chain navigating all source director
 
 - Makefile auto-runs `py Build.py` if `GeneratedBuild.mk` or `Translation/zh-TW.ini` is missing.
 - `Build.py` scans `Modules/*/*.module.ini`. No manual Makefile edits needed to add a module.
-- `Tests/GuiTest.cpp` exists but has no Makefile target — compile manually if needed.
+- `Debug/UI/GuiTest.cpp` exists but has no Makefile target — compile manually if needed.
 
 ### Shell environment
 
