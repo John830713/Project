@@ -26,6 +26,22 @@ main.cpp → HostApp → ModuleManager → IFeatureModule (each module)
 
 See [resources/reference/modules-overview.md](resources/reference/modules-overview.md) for detailed module system reference.
 
+## Root-level files
+
+| File | Role |
+|------|------|
+| `main.cpp` | Application entry point (`wWinMain`) |
+| `HostApp.h/cpp` | Application host, IHostContext impl, module lifecycle |
+| `Makefile` | Build rules (MinGW-g++), auto-runs `Build.py` if generated files missing |
+| `Build.bat` | One-click build: clean → `py Build.py` → `make`. Reads `MakePath.txt` |
+| `Build.py` | Codegen: module registry, icon resource, merged translations |
+| `ProjectPackager.py` | Packaging report / export-clean |
+| `ProjectSnapshot.py` | Project context snapshot for agents |
+| `TranslationRes.rc` | Embeds `Translation/zh-TW.ini` as RCDATA |
+| `Pet.png` | Desktop pet image (loaded by MainWindow) |
+| `Test.png` | Alternate icon source (used by Build.py if no .ico file) |
+| `AGENTS.md` | Agent startup guide (build commands, shell environment) |
+
 ## Referenced by
 
 - *(Root node — entry point for this project's INDEX chain)*

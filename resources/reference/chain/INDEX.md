@@ -62,11 +62,18 @@ Common project node structure:
 
 ```
 project-root/           → root node (forward points to children)
+├── Core/               → leaf node
+├── Services/           → leaf node
+├── Pet/                → leaf node
+├── UI/                 → leaf node
+├── Tests/              → leaf node
+├── Translation/        → leaf node
 ├── resources/          → resource node
-│   ├── reference/      → leaf node (forward: [])
+│   ├── reference/      → leaf node
 │   ├── skills/         → leaf node
 │   └── tools/          → leaf node
-└── .agent/             → runtime data, NOT a chain node
+└── Modules/            → interior node
+    └── <Name>/         → leaf node per module
 ```
 
 ### 6.3 Create `.index.json` per node

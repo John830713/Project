@@ -23,7 +23,7 @@
 
 ## Safety
 
-- `.gitignore` excludes `.agent/`, `.mneme/`, `resources/` (mostly)
+- `.gitignore` excludes `Config/`, `Log/`, `resources/`, generated build/translation files, binary outputs
 - Force-tracked exceptions are documented in `reference/tool/INDEX.md`
 - Review `git diff --cached` before commit to avoid leaking secrets
 
