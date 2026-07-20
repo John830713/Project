@@ -1,0 +1,37 @@
+AutoKey Module 類別關係
+
+                    +-----------------------+
+                    |   IFeatureModule      |  (abstract, Core/IFeatureModule.h)
+                    +-----------------------+
+                              ^
+                              | implements
+                    +-----------------------+
+                    |   AutoKeyModule       |  (AutoKeyModule.h/cpp)
+                    +-----------------------+
+                    | - m_actions[]         |
+                    | - m_hHotkeyWnd        |
+                    | - m_host (IHostCtx)   |
+                    +-----------------------+
+                         |          |
+          +--------------+          +--------------+
+          |                                         |
+   AutoKeyAction                              AutoKeyParser
+   (struct, per-action)                     (namespace, pure logic)
+   - id, name, keys                         - ParsedChord
+   - intervalSeconds, repeatCount           - ParseSequence()
+   - actionMode, triggerMode               - KeyNameToVk()
+   - triggerHotkey, autoStart              - ModNameToVk()
+   - running (atomic), thread              - ModNameToRegFlag()
+          |
+          +--> std::thread::RunAction()
+                -> ExecuteSequence()
+                  -> SendInput()
+          |
+          +--> HotkeyWndProc (hidden HWND)
+                -> RegisterHotKey / WM_HOTKEY
+                  -> OnHotkey()
+
+AutoKeyDialog (standalone, AutoKeyDialog.h/cpp)
+   - Show(parent, module) -> modal loop
+   - EditAction() -> inline child window (lambda WndProc)
+   - RefreshList() -> LB_RESETCONTENT
