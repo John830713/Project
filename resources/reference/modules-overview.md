@@ -89,3 +89,32 @@ Every `*Types.h` includes only standard library headers. Never references Core o
 3. Update `*.module.ini` fields (`Name`, `Class`, `Sources`, `Headers`)
 4. Implement `IFeatureModule` + optionally `IDropActionProvider`
 5. Run `py Build.py` to regenerate registry
+
+## Implementation Rules
+
+1. Every module must fully implement `IFeatureModule`.
+2. For drag-drop support, additionally implement `IDropActionProvider`.
+3. For right-click menu items, override `GetContextMenuItems()` / `ExecuteContextMenuItem()`. Labels must be translated inside the module before returning — `ModuleManager` does not translate them:
+   ```cpp
+   item.label = Tr(L"ModuleName", L"Toggle Enable");
+   ```
+4. For custom input, additionally implement `IInputHandler`.
+5. For About dialog, override `GetVersion()` / `GetPurpose()` (defaults: `"1.0.0"` / `""`). Return raw strings — the About dialog handles `Tr()` wrapping.
+6. Modules communicate with host via `IHostContext`, NOT a concrete `HostApp` class.
+7. Settings accessed via `GetValue`/`SetValue`, persisted by `ConfigManager`.
+8. Config fields (`GetConfigDefinitions`) are automatically exposed in the Settings dialog; each module gets a tab. `Bool` → checkbox, `Int`/`String` → edit box.
+9. Build script auto-scans `*.module.ini`; no manual Makefile editing needed.
+
+## Translation Conventions
+
+- Each module has its own lang file: `Modules/<Name>/lang/zh-TW.ini`
+- `Build.py` merges all modules' lang files into `Translation/zh-TW.ini` on each build
+- Sections: `[ModuleName]` for general UI + context menu labels, `[TabLabels]` for settings tab names, `[About]` for version/purpose strings
+- **Prefix+name pattern**: never put trailing space in translation key or value (`Build.py` strips both). Add space in C++: `Tr(L"AutoKey", L"▶ Start") + L" " + actionName`
+- Context menu parent prefix: if a module's context menu items need a parent prefix (like `"AutoKey ▶"`), the prefix is translated by `Tr()` and the space is added in C++
+
+## Config File Conventions
+
+- Module config files live in `Config/Config_<ModuleName>.ini`
+- Standard fields (`GetConfigDefinitions`) use `[<ModuleName>]` section
+- Custom fields or multi-record data may use additional sections like `[Action_N]` (see AutoKey for `GetPrivateProfileStringW`-based access)
