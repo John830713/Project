@@ -165,7 +165,7 @@ static void test_ParseSequence() {
 
 static void test_IniRoundtrip() {
     wchar_t iniPath[MAX_PATH + 1];
-    swprintf(iniPath, MAX_PATH, L"D:\\Project\\Tests\\_test_actions.ini");
+    swprintf(iniPath, MAX_PATH, L"D:\\Project\\Debug\\AutoKey\\_test_actions.ini");
 
     DeleteFileW(iniPath);
 
