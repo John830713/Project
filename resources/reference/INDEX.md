@@ -5,7 +5,7 @@
 | File | Description |
 |------|-------------|
 | [chain/](chain/INDEX.md) | INDEX chain specification |
-| [design/](design/INDEX.md) | Tampermonkey UI pattern library |
+| [design/](design/INDEX.md) | System architecture — module system, context menu, config, build, dialogs |
 | [autokey-analysis.md](autokey-analysis.md) | AutoKey 模組架構分析 |
 | [autokey-class-diagram.txt](autokey-class-diagram.txt) | AutoKey 類別關係圖 |
 | [build-process.md](build-process.md) | 建置流程記錄 |
