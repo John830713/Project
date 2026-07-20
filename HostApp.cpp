@@ -3,6 +3,7 @@
 #include "Pet/MainWindow.h"
 #include "Core/Logger.h"
 #include "Core/ConfigManager.h"
+#include "Core/LoaderConfig.h"
 #include "Core/DebugConsole.h"
 #include "GeneratedModuleRegistry.h"
 
@@ -31,7 +32,7 @@ static void SetDpiAware() {
     SetProcessDPIAware();
 }
 
-bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
+bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config) {
     SetDpiAware();
     timeBeginPeriod(1);
     m_hInstance = hInstance;
@@ -67,7 +68,7 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow) {
         return false;
     }
 
-    RegisterGeneratedModules(m_moduleManager);
+    RegisterGeneratedModules(m_moduleManager, config.enabledModules);
 
     m_moduleManager.InitializeModules(hInstance, this);
     m_moduleManager.LoadAllConfigs();

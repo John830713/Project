@@ -3,6 +3,7 @@
 #include "Core/IHostContext.h"
 #include "Core/ModuleManager.h"
 #include "Core/InputManager.h"
+#include "Core/LoaderConfig.h"
 #include "Services/TranslationService.h"
 
 #include <windows.h>
@@ -15,7 +16,7 @@ public:
     HostApp();
     ~HostApp();
 
-    bool Initialize(HINSTANCE hInstance, int nCmdShow);
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config);
     int Run();
 
     //--- IHostContext ---

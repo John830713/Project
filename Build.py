@@ -329,9 +329,13 @@ def generate_module_registry(parsed_modules):
     header_lines.append("")
     header_lines.append("#pragma once")
     header_lines.append("")
+    header_lines.append("#include <set>")
+    header_lines.append("#include <string>")
+    header_lines.append("")
     header_lines.append("class ModuleManager;")
     header_lines.append("")
-    header_lines.append("void RegisterGeneratedModules(ModuleManager& manager);")
+    header_lines.append("void RegisterGeneratedModules(ModuleManager& manager,")
+    header_lines.append("    const std::set<std::wstring>& enabledModules);")
     header_lines.append("")
 
     cpp_lines = []
@@ -347,9 +351,11 @@ def generate_module_registry(parsed_modules):
         cpp_lines.append(f'#include "{include_path}"')
 
     cpp_lines.append("")
-    cpp_lines.append("void RegisterGeneratedModules(ModuleManager& manager) {")
+    cpp_lines.append("void RegisterGeneratedModules(ModuleManager& manager, const std::set<std::wstring>& enabledModules) {")
     for mod in enabled_modules:
-        cpp_lines.append(f'    manager.RegisterModule(new {mod["class"]}());')
+        guard = f'enabledModules.empty() || enabledModules.count(L"{mod["name"]}")'
+        cpp_lines.append(f'    if ({guard})')
+        cpp_lines.append(f'        manager.RegisterModule(new {mod["class"]}());')
     cpp_lines.append("}")
     cpp_lines.append("")
 
