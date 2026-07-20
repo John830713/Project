@@ -27,6 +27,7 @@ Live at `D:\Agent\resources\reference\`:
 | `opencode/` | OpenCode app rules, restart, send-to-self |
 | `task/` | Task lifecycle and management |
 | `tool/` | Tool lookup order, adding rules, git tracking |
+| `toolchain/` | Build config reference (compiler flags, target, static linking, pre-existing warnings) |
 | `result-archive/` | Result archive format |
 
 ## Referenced by
