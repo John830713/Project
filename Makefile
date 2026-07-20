@@ -22,6 +22,7 @@ CPP_OBJS = \
 	Core/ConfigManager.o \
 	Core/DebugConsole.o \
 	Core/InputManager.o \
+	Core/LoaderConfig.o \
 	Core/Logger.o \
 	Core/ModuleManager.o \
 	Services/ChecksumService.o \
@@ -85,18 +86,18 @@ TranslationRes.o: $(TRANSLATION_OUT)
 TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1 -static-libgcc -static-libstdc++ -static
 TEST_LIBS = -luser32 -lkernel32
 
-TEST_TARGETS = Tests/AutoKeyTest.exe Tests/TooltipTest.exe Tests/DebugStateTest.exe
+TEST_TARGETS = Debug/AutoKey/AutoKeyTest.exe Debug/UI/TooltipTest.exe Debug/Core/DebugStateTest.exe
 
 test: $(TEST_TARGETS)
 	@for %%t in ($(TEST_TARGETS)) do (echo === %%t === && "%%t")
 
-Tests/TooltipTest.exe: Tests/TooltipTest.cpp
+Debug/UI/TooltipTest.exe: Debug/UI/TooltipTest.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lcomctl32
 
-Tests/AutoKeyTest.exe: Tests/AutoKeyTest.cpp Modules/AutoKey/AutoKeyParser.cpp
+Debug/AutoKey/AutoKeyTest.exe: Debug/AutoKey/AutoKeyTest.cpp Modules/AutoKey/AutoKeyParser.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS)
 
-Tests/DebugStateTest.exe: Tests/DebugStateTest.cpp Core/ModuleManager.cpp
+Debug/Core/DebugStateTest.exe: Debug/Core/DebugStateTest.cpp Core/ModuleManager.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS)
 
 -include $(DEPS)

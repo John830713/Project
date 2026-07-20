@@ -3,7 +3,7 @@
 //
 // Compiles standalone with just the project headers — no module .cpp files.
 //
-// mingw32-make Tests/DebugStateTest.exe
+// mingw32-make Debug/Core/DebugStateTest.exe
 // (or add to test: target in Makefile)
 
 #include <cstdio>
@@ -12,9 +12,9 @@
 #include <vector>
 
 //--- Project headers (header-only, no link deps) ---
-#include "../Core/IFeatureModule.h"
-#include "../Core/ModuleManager.h"
-#include "../Core/IDebugStateProvider.h"
+#include "Core/IFeatureModule.h"
+#include "Core/ModuleManager.h"
+#include "Core/IDebugStateProvider.h"
 
 //--- Test helpers ---
 static int g_tests = 0;

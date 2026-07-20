@@ -1,5 +1,5 @@
 // Unit tests for AutoKey parser and INI roundtrip
-#include "../Modules/AutoKey/AutoKeyParser.h"
+#include "Modules/AutoKey/AutoKeyParser.h"
 #include <cstdio>
 #include <cstdlib>
 #include <string>

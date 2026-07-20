@@ -66,7 +66,10 @@ project-root/           → root node (forward points to children)
 ├── Services/           → leaf node
 ├── Pet/                → leaf node
 ├── UI/                 → leaf node
-├── Tests/              → leaf node
+├── Debug/              → interior node
+│   ├── AutoKey/        → leaf node
+│   ├── Core/           → leaf node
+│   └── UI/             → leaf node
 ├── Translation/        → leaf node
 ├── resources/          → resource node
 │   ├── reference/      → leaf node
