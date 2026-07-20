@@ -1,7 +1,6 @@
 #include "MainWindow.h"
 #include "PetConfig.h"
 #include "../UI/SettingsDialog.h"
-#include "../UI/NetworkInfoDialog.h"
 #include "../Core/ModuleManager.h"
 #include "../Core/DropTypes.h"
 #include <cstdlib>
@@ -932,9 +931,6 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             OpenSettings(hwnd);
         } else if (cmd == ID_ABOUT) {
             ShowAboutDialog(hwnd);
-        } else if (cmd == ID_NETINFO) {
-            NetworkInfoDialog dlg(hwnd);
-            dlg.Show();
         } else if (cmd == ID_PET_TOPMOST) {
             ToggleTopmost();
         } else if (cmd == ID_PET_MOVE_STILL) {
@@ -1011,7 +1007,6 @@ enum PopupHit { HIT_NONE = -1 };
 enum PopupItemKind { PIK_ACTION, PIK_SEP, PIK_SUBMENU, PIK_SLIDER };
 // SliderKind defined in MainWindow.h
 
-static constexpr int FILE_ID_NETINFO = 9998;
 static constexpr int FILE_ID_TOPMOST = 102;
 static constexpr int FILE_ID_SETTINGS = 101;
 static constexpr int FILE_ID_ABOUT = 9999;
@@ -1044,16 +1039,13 @@ static PopupItemKind g_popupKind[] = {
     PIK_ACTION,   // 3:  Settings...
     PIK_ACTION,   // 4:  About...
     PIK_SEP,      // 5:
-    PIK_ACTION,   // 6:  Network Info...
-    PIK_SEP,      // 7:
-    PIK_ACTION,   // 8:  Exit
+    PIK_ACTION,   // 6:  Exit
 };
 static constexpr int POPUP_N = sizeof(g_popupKind) / sizeof(g_popupKind[0]);
 
 static int g_popupCmd[] = {
     0, 0, 0,
-    FILE_ID_SETTINGS, FILE_ID_ABOUT, 0,
-    FILE_ID_NETINFO, 0, FILE_ID_EXIT
+    FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_EXIT
 };
 
 struct ContextSliderData {
@@ -1287,7 +1279,6 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
                     switch (g_popupCmd[i]) {
                     case FILE_ID_SETTINGS: label = Tr(L"Pet", L"Settings..."); break;
                     case FILE_ID_ABOUT:    label = Tr(L"Pet", L"About Project..."); break;
-                    case FILE_ID_NETINFO:  label = Tr(L"Pet", L"Network Info..."); break;
                     case FILE_ID_EXIT:     label = Tr(L"Pet", L"Exit"); break;
                     }
                 } else {
