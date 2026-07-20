@@ -1,18 +1,10 @@
 # Tools
 
-Structural reference for tool organization. Live tool files are at `D:\Agent\resources\tools/`.
+Tool references for this project. Browse `D:\Agent\resources\tools\` for cross-project tool INDEX chain. This directory only contains project-specific scripts.
 
-| Subdir | Purpose |
-|--------|---------|
-| `common/` | Cross-project tools (mneme, chain-check, …) |
-| `local/` | Machine-specific tools |
-
-## Forward links
-
-| Path | Description |
-|------|-------------|
-| [common/](common/INDEX.md) | Cross-project tools |
-| [local/](local/INDEX.md) | Machine-specific tools |
+| Path | Contents |
+|------|----------|
+| [local/](local/INDEX.md) | Project-specific debug & dev scripts (`.ps1`) |
 
 ## Referenced by
 

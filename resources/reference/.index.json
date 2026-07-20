@@ -1,1 +1,1 @@
-{"version": 1, "forward": ["design/", "log/", "conventions/", "git/", "mneme/", "opencode/", "chain/"], "referenced_by": [".."]}
+{"version": 1, "forward": ["design/", "chain/", "autoit-v3/"], "referenced_by": [".."]}

@@ -27,16 +27,13 @@ Copy-Item -Recurse "D:\Agent\template\resources" "D:\Agent\resources"
 
 ```
 resources/
-├── tools/              # Tool docs (common + local)
-├── skills/             # Skill definitions
+├── tools/              # Tool docs (common → D:\Agent, local → project)
+│   ├── common/         → D:\Agent\resources\tools\common\
+│   └── local/          # Project scripts + external tool refs
+├── skills/             → D:\Agent\resources\skills\
 └── reference/          # Reference topics
-    ├── design/         # Tampermonkey UI patterns
-    ├── task/           # Task lifecycle
-    ├── log/            # Session log format
-    ├── tool/           # Tool management rules
-    ├── conventions/    # Naming + data sync rules
-    ├── git/            # Git rules and workflow
-    ├── mneme/          # Mneme memory rules
-    ├── opencode/        # OpenCode app rules, restart, send-to-self
-    └── chain/          # INDEX chain specification
+    ├── design/         # Tampermonkey UI patterns (project-specific)
+    ├── chain/          # INDEX chain specification
+    ├── *.md            # Project-specific docs
+    └── common/         → D:\Agent\resources\reference\ (conventions, git, log, ...)
 ```

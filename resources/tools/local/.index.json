@@ -1,1 +1,1 @@
-{"version": 1, "forward": [], "referenced_by": [".."]}
+{"version": 1, "forward": ["select-modules.ps1", "debug-build.ps1", "run-tests.ps1", "view-log.ps1", "clean-debug.ps1"], "referenced_by": [".."]}
