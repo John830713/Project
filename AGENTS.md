@@ -8,9 +8,9 @@ Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++.
 |---|---|
 | `mingw32-make` | Release build |
 | `mingw32-make debug` | Clean rebuild with `DEBUG_CONSOLE=1` (AllocConsole, full DBG traces) |
-| `mingw32-make test` | Build + run `Tests/AutoKeyTest.exe` (custom mini-framework) |
+| `mingw32-make test` | Build + run all test targets (AutoKeyTest, TooltipTest, DebugStateTest) |
 | `mingw32-make rebuild` | `clean` then `all` |
-| `mingw32-make distclean` | `clean` + delete all generated files (triggers full regeneration) |
+| `mingw32-make distclean` | `clean` + delete `GeneratedBuild.mk`, `GeneratedIcon.*`, `Translation\zh-TW.ini` (triggers full regeneration; does NOT delete `GeneratedModuleRegistry.*`) |
 | `mingw32-make CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1` | **CAUTION**: incremental only — `main.o` / `DebugConsole.o` may not recompile. Prefer `Build.bat -debug` instead. |
 | `py Build.py` | Regenerate `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, merged translations |
 | `Build.bat` | Release build via MakePath.txt or MSYS2 (`clean` + `py Build.py` + `make`) |
@@ -50,9 +50,9 @@ main.cpp → HostApp → ModuleManager → IFeatureModule (each module)
 ## Module system
 
 - Implement `IFeatureModule` (`Core/IFeatureModule.h`) + optionally `IDropActionProvider` for file drop handling.
-- `*.module.ini` `[Module]` fields: `Name`, `Class`, `Sources`, `Headers`, `Resources`, `Libraries`, `Enabled=1`.
+- `*.module.ini` `[Module]` fields: `Name`, `Class`, `Sources`, `Headers`, `Resources`, `Libraries`, `Enabled=1`, `ConfigFile`, `LogFile`.
 - Setting `Enabled=0` excludes the module from build at generation time.
-- Auto-registered via `GeneratedModuleRegistry.cpp` (`HostApp.cpp:57` calls `RegisterGeneratedModules`).
+- Auto-registered via `GeneratedModuleRegistry.cpp` (`HostApp.cpp:70` calls `RegisterGeneratedModules`).
 - Module configs stored in `Config/Config_<Name>.ini` (whole `Config/` dir is gitignored, created at runtime).
 - Use `Modules/Template/` as skeleton reference when creating a new module.
 
@@ -73,4 +73,3 @@ main.cpp → HostApp → ModuleManager → IFeatureModule (each module)
 - Generated files (`GeneratedBuild.mk`, `GeneratedIcon.*`, `GeneratedModuleRegistry.*`) are gitignored — deleting them triggers regeneration.
 - `DEBUG_CONSOLE` macro controls `DBG()` / `AllocConsole()` via `Core/DebugConsole.h`.
 - Project metadata is read from `ProjectName.txt`, `TargetName.txt`, `HostHint.txt`, `Version.txt` (all gitignored, optional).
-- Only `Tests/AutoKeyTest.cpp` has a Makefile target. `Tests/GuiTest.cpp` must be compiled by hand.
