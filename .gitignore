@@ -17,9 +17,6 @@ Translation/*.ini
 # User config (local only)
 Config/*.ini
 
-# Agent runtime
-.agent/
-
 # Logs
 Log/
 
