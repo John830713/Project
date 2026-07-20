@@ -1,1 +1,1 @@
-{"version": 1, "forward": ["resources/", "Modules/"], "referenced_by": []}
+{"version": 1, "forward": ["Core/", "Services/", "Pet/", "UI/", "Tests/", "Translation/", "resources/", "Modules/"], "referenced_by": []}
