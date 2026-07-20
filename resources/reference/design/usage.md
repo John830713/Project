@@ -14,7 +14,7 @@
    ConfigFile=Config_<Name>.ini
    ```
 3. Implement `IFeatureModule` in `<Name>Module.h/.cpp`
-4. (optional) Add `Modules/<Name>/lang/zh-TW.ini` for translations
+4. Add `Modules/<Name>/lang/zh-TW.ini` with `[<Name>]` section for menu labels
 5. Run `py Build.py` to regenerate registry + build files
 6. Build with `mingw32-make`
 
@@ -24,6 +24,7 @@
 - [ ] Context menu: `GetContextMenuItems()` + `ExecuteContextMenuItem()`
 - [ ] Config: at minimum `{ L"Enabled", L"Enable Module", Bool, L"1", 0, 1 }`
 - [ ] INDEX.md + `.index.json` in the module directory
+- [ ] `lang/zh-TW.ini` with `[<ModuleName>]` section for context menu labels
 
 ---
 
