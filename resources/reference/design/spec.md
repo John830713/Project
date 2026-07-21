@@ -287,3 +287,132 @@ Common control classes:
 | Each module | `[<ModuleName>]` (e.g. `[AutoKey]`, `[NetworkInfo]`) |
 | Settings field labels | `[Common]` (shared across modules) |
 | Tab labels | `[TabLabels]` |
+
+---
+
+## 7. Pet Window (MainWindow)
+
+### Window properties
+
+- **Style**: `WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_ACCEPTFILES | WS_POPUP`
+- **Rendering**: `UpdateLayeredWindow(ULW_ALPHA)` — per-pixel alpha + `SourceConstantAlpha` for opacity
+- **Image**: `Pet.png` loaded via GDI+ `Bitmap::FromFile` → `GetHBITMAP` → memory DC → `UpdateLayeredWindow`
+- **Fallback**: 64×64 green rectangle if `Pet.png` missing
+- **Dragging**: `WM_NCHITTEST` returns `HTCAPTION` — entire window acts as title bar
+- **Position**: Persisted to `Config_Pet.ini` on `WM_EXITSIZEMOVE`, restored on startup (centered if `-1`)
+
+### Message loop
+
+Standard `GetMessageW` loop in `HostApp::Run()`. No dedicated game loop. Motion driven by `SetTimer` (ID=1, interval=`m_moveSpeed`).
+
+### Movement (OnMoveTimer)
+
+- Random walk: 15%/tick change direction, 3%/tick pause 1-5s
+- Edge behavior: bounce (reverse direction) or shuttle (wrap around)
+- Config: `moveEnabled`, `moveStep`, `moveSpeed`, `moveShuttle`
+
+### Edge snap
+
+When dragged within threshold of screen edge → shrink to 24×24 indicator dot (rounded rect + LED color). Timer 2 pulses at 250ms. Pauses auto-movement.
+
+### Context popup system
+
+Entirely custom-drawn (no `HMENU`/`TrackPopupMenu` for main menu):
+
+```
+Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
+  ├── Pet▸ (PetPopupProc): [Always on Top, Move▸, ---, Opacity▸, Scale▸]
+  │     ├── Move▸ (SubPopupProc): [Still, Move▸, Step▸, Speed▸, Shuttle]
+  │     │     ├── Step▸ (SliderSubPopupProc): trackbar + value
+  │     │     └── Speed▸ (SliderSubPopupProc): trackbar + value
+  │     ├── Opacity▸ (SliderSubPopupProc): trackbar + live preview
+  │     └── Scale▸ (SliderSubPopupProc): trackbar + live preview
+  └── Function▸ (SubPopupProc): module-provided items from ModuleManager::GetMenuGroups()
+```
+
+- Submenus open on **300ms hover timer** (not click)
+- Popup tree dismisses via `WM_ACTIVATE(WA_INACTIVE)` — sibling check prevents cascade-close
+- `CloseContextPopup()` cascades through all tracked HWNDs
+- Sliders: `MA_NOACTIVATE` subclass on trackbar to prevent focus stealing
+- Committed on popup dismiss or reverted via -1 sentinel
+
+### Drag-drop
+
+`WS_EX_ACCEPTFILES` → `WM_DROPFILES` → `OnDropFiles`:
+1. Extract files into `DropContext`
+2. `ModuleManager::GetDropActions(ctx)` — queries `IDropActionProvider` from all modules
+3. If >1 action: `ShowDropActionMenu()` — Win32 `TrackPopupMenu` (only place standard menu is used)
+4. `ModuleManager::ExecuteDropAction(resolved, ctx)`
+
+### Edge snap indicator
+
+`CreateSnapIndicator()`: 24×24 GDI+ bitmap with rounded rect gradient + LED dot:
+- Green = moving, Gray = still
+- RemoteControl module can set color via `SetSnapLedColor()`
+- Timer 2 pulses every 250ms
+
+### Custom WM_APP messages
+
+| Message | wParam | Purpose |
+|---------|--------|---------|
+| `WM_APP_SLIDER_CHANGE` (WM_APP+2) | `ID_PET_OPACITY` (110) / `ID_PET_SCALE` (111) / `ID_PET_MOVE_STEP` (105) / `ID_PET_MOVE_SPEED` (106) | Slider value changed (+ new value or -1 to cancel) |
+| `WM_APP_RELOAD_PETCONFIG` (WM_APP+3) | — | Re-read `Config_Pet.ini` from disk |
+| `WM_APP_CONTEXT_ACTION` (WM_APP+4) | — | Context popup tree dismissed |
+
+---
+
+## 8. Debug System
+
+### Two compile-time gates
+
+| Gate | Build flag | Effect |
+|------|-----------|--------|
+| `DEBUG_CONSOLE` | `CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1` | `AllocConsole`, `DBG()` macro, interactive CLI |
+| `ENABLE_DEBUG_STATE` | `-DENABLE_DEBUG_STATE=1` | `IDebugStateProvider` + `DebugGetState()` (test builds only) |
+
+### Debug console (`Core/DebugConsole.h/.cpp`)
+
+**DBG macro**: `wprintf` to console + `fwprintf` to `debug_log.txt`. Both `fflush()` after each write. Zero-cost no-op when `DEBUG_CONSOLE=0`.
+
+**Interactive commands** (typed in AllocConsole window, processed on background reader thread):
+
+| Command | Description |
+|---------|-------------|
+| `help` | List commands |
+| `modules` / `lsmod` | List registered modules |
+| `mod <name>` | Show module info + context menu items |
+| `mod <name> config` | Dump all config keys |
+| `mod <name> log [n]` | Last n lines of module log |
+| `mod <name> cmd <id>` | Execute context menu item by original ID |
+| `log <category> [n]` | Last n lines of arbitrary log |
+| `status` | Window position, size, topmost, module count |
+| `clear` | Clear console |
+| `quit` / `exit` | Post WM_QUIT, graceful shutdown |
+
+**Console reader thread**: Background thread reads stdin. Commands dispatched to main thread via `PostThreadMessageW(WM_APP_CONSOLE_CMD)`. Quit/exit post `WM_QUIT` to main thread.
+
+### Debug state (`IDebugStateProvider`)
+
+- Single method: `std::wstring DebugGetState() const`
+- Only `AutoKeyModule` implements it (production)
+- `ModuleManager::DebugGetState()` iterates modules, `dynamic_cast`s to `IDebugStateProvider*`, collects text dumps
+- Guarded by `#ifdef ENABLE_DEBUG_STATE`
+
+### Test infrastructure
+
+- **3 test targets** built via `make test` (not included in `make all`)
+- Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
+- Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
+- Return 0 = pass, 1 = fail
+
+| Test | File | Cases |
+|------|------|-------|
+| AutoKeyTest | `Debug/AutoKey/AutoKeyTest.cpp` | 65 — parser, VK names, modifiers, edge cases, INI roundtrip |
+| TooltipTest | `Debug/UI/TooltipTest.cpp` | 17 — Win32 tooltip cbSize, TTF_TRACK, activation ordering, mouse-move triggers |
+| DebugStateTest | `Debug/Core/DebugStateTest.cpp` | 9 — empty manager, module with/without state, direct query |
+| GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
+
+### MainWindow auto-test
+
+When `DEBUG_CONSOLE` is defined, a timer (ID=99) fires 3s after startup and runs an 8-step automated UI test: open context menu → navigate Pet>Move>Step → set trackbar to 42 → close → verify `m_moveStep == 42`. Logs PASS/FAIL then `PostQuitMessage`.
+
