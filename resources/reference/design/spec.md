@@ -416,3 +416,33 @@ Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
 
 When `DEBUG_CONSOLE` is defined, a timer (ID=99) fires 3s after startup and runs an 8-step automated UI test: open context menu → navigate Pet>Move>Step → set trackbar to 42 → close → verify `m_moveStep == 42`. Logs PASS/FAIL then `PostQuitMessage`.
 
+---
+
+## 12. Agent Documentation Convention (`AGENTS.md`)
+
+### Design principle
+
+`AGENTS.md` at project root is a **lightweight entry point**, not a comprehensive reference. It should:
+
+1. State what the project is (one line)
+2. Point to `INDEX.md` for the full INDEX chain
+3. Point to key reference locations (toolchain, architecture)
+
+All detailed information lives in the INDEX chain (`resources/reference/`, `D:\Agent\resources\reference\`). Agents navigate the chain lazily, reading only what they need.
+
+### Anti-patterns
+
+- Do NOT duplicate content from INDEX chain docs into `AGENTS.md`
+- Do NOT add build commands, module details, or conventions that already exist in reference docs
+- Do NOT expand `AGENTS.md` beyond ~15 lines
+
+### What belongs in `AGENTS.md`
+
+Only information that helps an agent **start** navigating:
+
+- Project identity (one line)
+- Entry point for INDEX chain (`INDEX.md`)
+- Key reference paths for common tasks (build, architecture)
+
+Everything else is discovered via the INDEX chain.
+

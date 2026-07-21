@@ -6,7 +6,7 @@ Desktop pet system architecture and reusable UI patterns.
 
 | File | Description |
 |------|-------------|
-| [spec.md](spec.md) | Architecture — module system, context menu, config, build |
+| [spec.md](spec.md) | Architecture — module system, context menu, config, build, agent documentation convention |
 | [usage.md](usage.md) | Patterns — new module, context menu item, dialog |
 
 ## Principles
