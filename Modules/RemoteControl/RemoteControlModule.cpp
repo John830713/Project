@@ -844,8 +844,6 @@ std::vector<ContextMenuItem> RemoteControlModule::GetContextMenuItems() const {
         TranslationService::Get()->Tr(L"RemoteControl",
             m_running ? L"Stop Remote Control" : L"Start Remote Control") });
 
-    items.push_back({ 0, L"", MF_SEPARATOR });
-
     std::wstring savePath = GetStringValue(L"SavePath", L"D:\\Temp");
     items.push_back({ kMenuSelectPath,
         TranslationService::Get()->Tr(L"RemoteControl", L"Select Save Path..."),
