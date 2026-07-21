@@ -215,6 +215,22 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
     }
 
     case WM_MOUSEWHEEL: {
+        POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        ScreenToClient(hwnd, &pt);
+        RECT tabRect;
+        GetClientRect(m_hTab, &tabRect);
+        MapWindowPoints(m_hTab, hwnd, (POINT*)&tabRect, 2);
+        if (PtInRect(&tabRect, pt)) {
+            int wDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+            int tabCount = 1 + (int)m_modules.size();
+            int sel = TabCtrl_GetCurSel(m_hTab);
+            int newSel = (wDelta > 0) ? sel - 1 : sel + 1;
+            if (newSel >= 0 && newSel < tabCount) {
+                TabCtrl_SetCurSel(m_hTab, newSel);
+                OnTabChanged(hwnd);
+            }
+            return 0;
+        }
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
         int scrollLines = 3;
         SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &scrollLines, 0);
