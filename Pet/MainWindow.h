@@ -49,6 +49,7 @@ private:
     void OnContextMenu(HWND hwnd, POINT pt);
     void ShowAboutDialog(HWND hwnd);
     void OpenSettings(HWND hwnd);
+    void OpenMenuOrderDialog(HWND hwnd);
     int ShowDropActionMenu(HWND hwnd, const std::vector<ResolvedDropAction>& actions);
     void SavePosition();
     void ToggleTopmost();
@@ -163,6 +164,7 @@ private:
         ID_PET_MOVE_STILL = 103, ID_PET_MOVE_MOVING = 104,
         ID_PET_MOVE_STEP = 105, ID_PET_MOVE_SPEED = 106,
         ID_PET_MOVE_SHUTTLE = 107,
+        ID_PET_EDIT_ORDER = 108,
         ID_PET_OPACITY = 110, ID_PET_SCALE = 111,
         ID_MENU_BASE = 2000, ID_ABOUT = 9999,
         ID_POPUP_BASE = 6000

@@ -4,6 +4,10 @@
 
 #include "ModuleManager.h"
 
+#include <algorithm>
+#include <filesystem>
+#include <map>
+
 #ifdef ENABLE_DEBUG_STATE
 #include "IDebugStateProvider.h"
 #endif
@@ -16,6 +20,21 @@ ModuleManager::~ModuleManager() {
         delete module;
     }
     m_modules.clear();
+}
+
+//==============================================================================
+// MenuOrder - read priority from Config_Pet.ini [MenuOrder]
+//==============================================================================
+
+static int GetModulePriority(const std::wstring& moduleName) {
+    wchar_t exePath[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::filesystem::path iniPath = std::filesystem::path(exePath).parent_path() / L"Config" / L"Config_Pet.ini";
+
+    wchar_t buf[16] = {};
+    GetPrivateProfileStringW(L"MenuOrder", moduleName.c_str(), L"999",
+        buf, static_cast<DWORD>(std::size(buf)), iniPath.c_str());
+    return _wtoi(buf);
 }
 
 //==============================================================================
@@ -99,9 +118,16 @@ std::vector<ContextMenuItem> ModuleManager::GetContextMenuItems() const {
     std::vector<ContextMenuItem> result;
 
     m_menuRoutes.clear();
+
+    std::vector<IFeatureModule*> sorted(m_modules.begin(), m_modules.end());
+    std::stable_sort(sorted.begin(), sorted.end(),
+        [](const IFeatureModule* a, const IFeatureModule* b) {
+            return GetModulePriority(a->GetModuleName()) < GetModulePriority(b->GetModuleName());
+        });
+
     int uniqueId = 0;
 
-    for (auto* module : m_modules) {
+    for (auto* module : sorted) {
         std::vector<ContextMenuItem> items = module->GetContextMenuItems();
         for (const auto& item : items) {
             result.push_back({ uniqueId, item.label, item.flags });
@@ -116,9 +142,17 @@ std::vector<ContextMenuItem> ModuleManager::GetContextMenuItems() const {
 std::vector<ModuleManager::ModuleMenuGroup> ModuleManager::GetMenuGroups() const {
     std::vector<ModuleMenuGroup> groups;
     m_menuRoutes.clear();
+
+    // Sort modules by priority from Config_Pet.ini [MenuOrder]
+    std::vector<IFeatureModule*> sorted(m_modules.begin(), m_modules.end());
+    std::stable_sort(sorted.begin(), sorted.end(),
+        [](const IFeatureModule* a, const IFeatureModule* b) {
+            return GetModulePriority(a->GetModuleName()) < GetModulePriority(b->GetModuleName());
+        });
+
     int uniqueId = 0;
 
-    for (auto* module : m_modules) {
+    for (auto* module : sorted) {
         auto items = module->GetContextMenuItems();
         if (!items.empty()) {
             ModuleMenuGroup group;

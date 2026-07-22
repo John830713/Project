@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 #include "PetConfig.h"
 #include "../UI/SettingsDialog.h"
+#include "../UI/MenuOrderDialog.h"
 #include "../Core/ModuleManager.h"
 #include "../Core/DropTypes.h"
 #include <cstdlib>
@@ -948,6 +949,8 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         } else if (cmd == ID_PET_MOVE_SHUTTLE) {
             m_moveShuttle = !m_moveShuttle;
             { PetConfig::Data cfg = PetConfig::Load(); cfg.moveShuttle = m_moveShuttle; PetConfig::Save(cfg); }
+        } else if (cmd == ID_PET_EDIT_ORDER) {
+            OpenMenuOrderDialog(hwnd);
         } else if (cmd >= ID_MENU_BASE && m_moduleManager) {
             m_moduleManager->ExecuteContextMenuItem(cmd - ID_MENU_BASE);
         }
@@ -1016,19 +1019,22 @@ static constexpr int FILE_ID_MOVE_MOVING = 104;
 static constexpr int FILE_ID_MOVE_STEP = 105;
 static constexpr int FILE_ID_MOVE_SPEED = 106;
 static constexpr int FILE_ID_MOVE_SHUTTLE = 107;
+static constexpr int FILE_ID_EDIT_ORDER = 108;
 
-//--- Pet submenu descriptors (Always on Top, Move ▸, ---, Opacity ▸, Scale slider) ---
+//--- Pet submenu descriptors (Always on Top, Move ▸, ---, Opacity ▸, Scale ▸, ---, Edit Order) ---
 static PopupItemKind g_petKind[] = {
     PIK_ACTION,   // 0:  Always on Top
     PIK_SUBMENU,  // 1:  Move ▸
     PIK_SEP,      // 2:
     PIK_SUBMENU,  // 3:  Opacity ▸
     PIK_SUBMENU,  // 4:  Scale ▸
+    PIK_SEP,      // 5:
+    PIK_ACTION,   // 6:  Edit Order
 };
 static constexpr int PET_N = sizeof(g_petKind) / sizeof(g_petKind[0]);
 static constexpr int PET_SLIDERS = 0;
 static int g_petCmd[] = {
-    FILE_ID_TOPMOST, 0, 0, 0, 0
+    FILE_ID_TOPMOST, 0, 0, 0, 0, 0, FILE_ID_EDIT_ORDER
 };
 
 //--- Main popup descriptors ---
@@ -1623,7 +1629,8 @@ LRESULT CALLBACK MainWindow::PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                     (GetWindowLongPtrW(self ? self->m_hwnd : nullptr, GWL_EXSTYLE) & WS_EX_TOPMOST));
                 std::wstring label;
                 switch (g_petCmd[i]) {
-                case FILE_ID_TOPMOST: label = Tr(L"Pet", L"Always on Top"); break;
+                case FILE_ID_TOPMOST:   label = Tr(L"Pet", L"Always on Top"); break;
+                case FILE_ID_EDIT_ORDER: label = Tr(L"Pet", L"Edit Order"); break;
                 }
                 if (topmost)
                     DrawTextW(dc, L"\u2713 ", -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
@@ -2254,6 +2261,11 @@ void MainWindow::OpenSettings(HWND hwnd) {
     SettingsDialog dlg(hwnd, m_moduleManager);
     dlg.Show();
     SyncMoveState();
+}
+
+void MainWindow::OpenMenuOrderDialog(HWND hwnd) {
+    CloseSliderPopup();
+    MenuOrderDialog::Show(hwnd, m_moduleManager);
 }
 
 void MainWindow::ShowAboutDialog(HWND hwnd) {

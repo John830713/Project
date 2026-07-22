@@ -40,6 +40,16 @@ Only for core Pet functionality. Modules use Function submenu instead.
 
 ---
 
+## Add a hard-coded Pet submenu item
+
+1. Add `ID_PET_xxx` to `MainWindow.h` enum
+2. Add `PIK_ACTION` to `g_petKind[]` in `MainWindow.cpp`
+3. Add `case ID_PET_xxx:` in PetPopupProc's WM_PAINT
+4. Add `else if (cmd == ID_PET_xxx)` handler in WM_COMMAND
+5. Add translation in `Pet/lang/zh-TW.ini` under `[Pet]`
+
+---
+
 ## Create a dialog
 
 1. Write a class following the modal dialog pattern (see [spec.md](spec.md) §5)
@@ -77,6 +87,23 @@ For leaf directories that refer outward, add `forward` entries:
 ```
 
 Run chain check: `py "D:\Agent\resources\tools\common\check-chain.py"`
+
+---
+
+## Edit menu order
+
+The MenuOrder dialog (`UI/MenuOrderDialog.h/.cpp`) allows users to reorder modules in the Function submenu:
+
+1. Access via Pet submenu → Edit Order
+2. Shows scrollable listbox with module names + priority numbers
+3. ▲▼ buttons move selected item up/down (swaps priority values)
+4. Save writes to `Config_Pet.ini [MenuOrder]` section
+5. ModuleManager reads priority on next menu open
+
+### To add new module to menu order
+
+1. Add entry in `Config_Pet.ini [MenuOrder]` with desired priority number
+2. ModuleManager::GetMenuGroups() will sort by priority automatically
 
 ---
 

@@ -140,6 +140,45 @@ Item constants: `FILE_ID_xxx` (static constexpr) match `ID_xxx` (enum in `MainWi
 
 Modules provide items via `IFeatureModule::GetContextMenuItems()`. `ModuleManager::GetMenuGroups()` assigns global `uniqueId` = `ID_MENU_BASE + index`. Click dispatch: `HandleMessage(WM_COMMAND, uniqueId)` → `m_moduleManager->ExecuteContextMenuItem(uniqueId - ID_MENU_BASE)` → routes to original module + itemId.
 
+### Menu order control
+
+Modules appear in Function submenu sorted by priority from `Config_Pet.ini [MenuOrder]`:
+
+```ini
+[MenuOrder]
+AutoKey=100
+ChangeEC=200
+Checksum=300
+NetworkInfo=400
+RemoteControl=500
+RomCombiner=600
+RomSeparator=700
+```
+
+- Lower number = higher priority (appears first)
+- Default priority = 999 if not specified
+- `GetModulePriority()` reads from `Config_Pet.ini [MenuOrder]` using `GetPrivateProfileStringW`
+- `GetMenuGroups()` uses `std::stable_sort` by priority, then assigns sequential `uniqueId`
+- Users can edit via Pet submenu → Edit Order → `MenuOrderDialog` popup
+
+### Pet submenu
+
+Static array `g_petKind[]` in `MainWindow.cpp`:
+
+```cpp
+static PopupItemKind g_petKind[] = {
+    PIK_SUBMENU,  // 0: Always on Top
+    PIK_SUBMENU,  // 1: Move ▸
+    PIK_SEP,      // 2:
+    PIK_SUBMENU,  // 3: Opacity ▸
+    PIK_SUBMENU,  // 4: Scale ▸
+    PIK_SEP,      // 5:
+    PIK_ACTION,   // 6: Edit Order
+};
+```
+
+File IDs: `ID_PET_TOPMOST=103`, `ID_PET_EDIT_ORDER=108`
+
 ### SubPopupProc
 
 Reusable popup window for module submenus. Uses `std::vector<PopupItem>` for layout + dispatch. Same WM_PAINT/WM_MOUSEMOVE/WM_LBUTTONDOWN pattern.
