@@ -29,22 +29,22 @@ Exceptions:
 
 ## Dependency Matrix
 
-| Core/Service | AutoKey | ChangeEC | Checksum | RemoteControl | RomCombiner | RomSeparator | Template |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `IFeatureModule.h` | H | H | H | H | H | H | H |
-| `IDropActionProvider.h` | -- | H | H | H | H | H | H |
-| `ConfigTypes.h` | H | H | -- | H | H | --* | H |
-| `IHostContext.h` | -- | H** | -- | -- | H** | -- | H** |
-| `IDebugStateProvider.h` | H† | -- | -- | -- | -- | -- | -- |
-| `ConfigManager.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `Logger.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `DebugConsole.h` | cpp | -- | -- | -- | -- | -- | -- |
-| `TranslationService.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `FileService.h` | -- | cpp | -- | -- | cpp | cpp | -- |
-| `ChecksumService.h` | -- | -- | cpp | -- | -- | -- | -- |
-| `ClipboardService.h` | -- | -- | cpp | -- | -- | -- | -- |
-| `NetworkService.h` | -- | -- | -- | cpp | -- | -- | -- |
-| `FileTransferService.h` | -- | -- | -- | H+cpp | -- | -- | -- |
+| Core/Service | AutoKey | ChangeEC | Checksum | RemoteControl | Release_Package | RomCombiner | RomSeparator | Template |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `IFeatureModule.h` | H | H | H | H | H | H | H | H |
+| `IDropActionProvider.h` | -- | H | H | H | -- | H | H | H |
+| `ConfigTypes.h` | H | H | -- | H | H | H | --* | H |
+| `IHostContext.h` | -- | H** | -- | -- | -- | H** | -- | H** |
+| `IDebugStateProvider.h` | H† | -- | -- | -- | -- | -- | -- | -- |
+| `ConfigManager.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `Logger.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `DebugConsole.h` | cpp | -- | -- | -- | -- | -- | -- | -- |
+| `TranslationService.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `FileService.h` | -- | cpp | -- | -- | -- | cpp | cpp | -- |
+| `ChecksumService.h` | -- | -- | cpp | -- | -- | -- | -- | -- |
+| `ClipboardService.h` | -- | -- | cpp | -- | -- | -- | -- | -- |
+| `NetworkService.h` | -- | -- | -- | cpp | -- | -- | -- | -- |
+| `FileTransferService.h` | -- | -- | -- | H+cpp | -- | -- | -- | -- |
 
 **Legend:** H = `.h` include, cpp = `.cpp` only, † = conditional, \* = transitive, \*\* = in Window.h
 
@@ -63,6 +63,7 @@ Used by all modules:
 | ChangeEC | Yes | Yes | No | No |
 | Checksum | Yes | Yes | No | No |
 | RemoteControl | Yes | Yes | No | No |
+| Release_Package | Yes | **No** | No | No |
 | RomCombiner | Yes | Yes | No | No |
 | RomSeparator | Yes | Yes | No | No |
 | Template | Yes | Yes | No | No |

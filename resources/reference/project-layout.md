@@ -53,6 +53,7 @@ D:\Project/
 │   ├── ChangeEC/            EC firmware patcher: merge .bin into .rom at offset
 │   ├── Checksum/            File hash calculator (CRC/MD5/SHA1 display)
 │   ├── NetworkInfo/         Network adapter info: IPv4 per-IP copy + scrollable dialog
+│   ├── Release_Package/     7z archive extractor with token-based rule engine
 │   ├── RemoteControl/       Remote control via TCP: keyboard/mouse forwarding
 │   ├── RomCombiner/         ROM concatenation: combine two .rom files into one
 │   ├── RomSeparator/        ROM split: slice combined .rom at configurable boundary
