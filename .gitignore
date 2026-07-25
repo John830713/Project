@@ -26,3 +26,5 @@ ProjectName.txt
 HostHint.txt
 Version.txt
 TargetName.txt
+
+.agent/
