@@ -36,21 +36,25 @@ std::wstring RunProcess(const std::wstring& exe, const std::wstring& args) {
     STARTUPINFOW si = { sizeof(si) };
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = hWrite;
-    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    si.hStdError = hWrite;
     PROCESS_INFORMATION pi = {};
     BOOL ok = CreateProcessW(nullptr, &wcmd[0], nullptr, nullptr, TRUE, 0, nullptr, nullptr, &si, &pi);
     CloseHandle(hWrite);
     if (!ok) { CloseHandle(hRead); return L""; }
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-    std::wstring output;
-    wchar_t buf[4096];
+    std::string raw;
+    char cbuf[8192];
     DWORD n;
-    while (ReadFile(hRead, buf, sizeof(buf) - sizeof(wchar_t), &n, nullptr) && n > 0) {
-        buf[n / sizeof(wchar_t)] = 0;
-        output += buf;
+    while (ReadFile(hRead, cbuf, sizeof(cbuf) - 1, &n, nullptr) && n > 0) {
+        cbuf[n] = 0;
+        raw += cbuf;
     }
     CloseHandle(hRead);
+    if (raw.empty()) return L"";
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, raw.c_str(), (int)raw.size(), nullptr, 0);
+    std::wstring output(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, raw.c_str(), (int)raw.size(), &output[0], wlen);
     return output;
 }
 
