@@ -3,5 +3,16 @@
   "instructions": [
     "AGENTS.md",
     "D:\\Agent\\SHARED_RULES.md"
-  ]
+  ],
+  "mcp": {
+    "mneme": {
+      "command": [
+        "D:\\Agent\\resources\\tools\\common\\mneme\\mneme.exe",
+        "run"
+      ],
+      "enabled": true,
+      "type": "local",
+      "timeout": 120000
+    }
+  }
 }
