@@ -8,6 +8,8 @@
 #pragma once
 #include "RemoteControlTypes.h"
 #include <windows.h>
+#include <string>
+#include <vector>
 
 class RemoteControlHook {
 public:
@@ -29,6 +31,8 @@ public:
 
     static int  ClipRead(wchar_t* buf, int cap);
     static int  ClipWrite(const wchar_t* txt, int len);
+    static void ClipReadAll(RemoteControl::ClipboardPayload& out);
+    static bool ClipWriteAll(const RemoteControl::ClipboardPayload& p);
 
     static constexpr ULONG_PTR kMagic = 0xB0B0C0C0;
 

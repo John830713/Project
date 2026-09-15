@@ -86,7 +86,7 @@ TranslationRes.o: $(TRANSLATION_OUT)
 TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1 -static-libgcc -static-libstdc++ -static
 TEST_LIBS = -luser32 -lkernel32
 
-TEST_TARGETS = Debug/AutoKey/AutoKeyTest.exe Debug/UI/TooltipTest.exe Debug/Core/DebugStateTest.exe Debug/Core/MenuOrderTest.exe
+TEST_TARGETS = Debug/AutoKey/AutoKeyTest.exe Debug/UI/TooltipTest.exe Debug/Core/DebugStateTest.exe Debug/Core/MenuOrderTest.exe Debug/RemoteControl/ClipboardTest.exe
 
 test: $(TEST_TARGETS)
 	@for %%t in ($(TEST_TARGETS)) do (echo === %%t === && "%%t")
@@ -102,6 +102,9 @@ Debug/Core/DebugStateTest.exe: Debug/Core/DebugStateTest.cpp Core/ModuleManager.
 
 Debug/Core/MenuOrderTest.exe: Debug/Core/MenuOrderTest.cpp Core/ModuleManager.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS)
+
+Debug/RemoteControl/ClipboardTest.exe: Debug/RemoteControl/ClipboardTest.cpp Modules/RemoteControl/RemoteControlHook.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lgdi32
 
 -include $(DEPS)
 

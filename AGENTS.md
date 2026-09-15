@@ -1,45 +1,53 @@
 # AGENTS.md — Project
 
-Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++.
+Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++. No CI, no package manager.
 
-Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/reference/project-layout.md) first for directory map and architecture.
+Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/reference/project-layout.md) first for the directory map and architecture (`main.cpp → HostApp → ModuleManager → IFeatureModule`).
 
-## Build
+## Build (cmd.exe, not bash)
 
-- **`Build.bat`** — one-click build (clean → `py Build.py` → `mingw32-make`). Adds `-debug` for debug (AllocConsole + DBG traces).
-- **`Build.bat -debug`** / **`make debug`** — debug build with `-DDEBUG_CONSOLE=1`.
-- **`mingw32-make test`** — builds **and runs** all test EXEs (skipped by `make all`).
-- **`py Build.py`** — codegen: scans `Modules/*/*.module.ini`, writes `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`, merged translations. Run after adding/removing any `.cpp` or module.
-- **`make clean` + `py Build.py` + `make`** — manual equivalent of `Build.bat`.
-- Makefile uses **`cmd.exe`** syntax — no POSIX shell constructs.
-- All `Generated*` files are auto-generated and **gitignored**.
+- **`Build.bat`** — one-click: `make clean` → `py Build.py` → `mingw32-make`. Finds make via `MakePath.txt`, then PATH, then `C:\msys64\*`. **Pauses at the end**; use the manual sequence for scripts/CI.
+- **`Build.bat -debug`** (or `debug`) / **`make debug`** — debug build with `-DDEBUG_CONSOLE=1` (AllocConsole + DBG traces → `debug_log.txt`).
+- **`Build.bat trim`** — build + `make trim`; note the Makefile has **no `trim` target**, the failure is ignored.
+- Manual equivalent: `make clean; py Build.py; make`.
+- `make` auto-runs `py Build.py` **only if `GeneratedBuild.mk` or `Translation/zh-TW.ini` is missing** — after adding/removing any `.cpp`/`.rc`/module run `py Build.py` explicitly first.
+- `make distclean` — removes all `Generated*` + `Translation/zh-TW.ini` (forces full regen).
+- Makefile uses **`cmd.exe` syntax** (`@for %%t in ...`, `del`) — no POSIX shell constructs.
+- Requires `py` (Python launcher) on PATH; converting a `.png`/`.jpg` root icon → `.ico` additionally needs Pillow (`py -m pip install pillow`) — otherwise build continues without icon.
 
 ## Module system
 
-- Modules live in `Modules/<Name>/` with a `<Name>.module.ini` manifest:
+- Each feature lives in `Modules/<Name>/` with a `<Name>.module.ini` manifest:
   ```ini
   [Module]
   Name=AutoKey
   Class=AutoKeyModule
   Sources=AutoKeyParser.cpp,AutoKeyModule.cpp,AutoKeyDialog.cpp
+  Headers=AutoKeyModule.h,AutoKeyDialog.h
+  Resources=
   Libraries=
   Enabled=1
+  ConfigFile=Config_AutoKey.ini
+  LogFile=Log_AutoKey.txt
   ```
-- Set `Enabled=0` to exclude from build without removing files.
-- Each module gets its own `Config_<Name>.ini` (in `Config/`, gitignored) and log file.
+- List values accept `,` or `;` separators. `Enabled=0` excludes from build without deleting files.
+- `Build.py` hardcodes the include path `Modules/<Name>/<Name>Module.h` — a module's main class header **must** be named `<Name>Module.h`.
+- New module: copy `Modules/Template/`, rename files/class, then `py Build.py`.
+- Per-module runtime config/log use the manifest's `ConfigFile`/`LogFile` names (files in `Config/`, `Log/`).
 
 ## Tests
 
-- Four test EXEs: `Debug/AutoKey/AutoKeyTest.exe`, `Debug/UI/TooltipTest.exe`, `Debug/Core/DebugStateTest.exe`, `Debug/Core/MenuOrderTest.exe`.
-- Compiled with `-O0 -g -DENABLE_DEBUG_STATE=1`; linked against `-luser32 -lkernel32` only (no GDI+).
-- `Debug/UI/GuiTest.exe` has no Makefile target — compile manually if needed.
+- `mingw32-make test` — builds **and runs** 5 EXEs: `Debug/{AutoKey/AutoKeyTest,UI/TooltipTest,Core/DebugStateTest,Core/MenuOrderTest,RemoteControl/ClipboardTest}.exe`. Not built by `make all`.
+- Test flags: `-O0 -g -DENABLE_DEBUG_STATE=1`; linked `-luser32 -lkernel32` (TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`), **no GDI+**.
+- Tests compile the real `Core/ModuleManager.cpp` as a unit (MenuOrderTest/DebugStateTest) and the real `RemoteControlHook.cpp` (ClipboardTest) — keep Console/DBG behaviors out of code you want unit-testable.
+- `Debug/UI/GuiTest.cpp` (E2E GUI) has **no Makefile target** — compile manually if needed.
 
 ## Codegen & translation
 
-- `Build.py` merges `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` → `Translation/<lang>.ini` (UTF-16 LE with BOM).
-- `TranslationRes.rc` embeds `Translation/zh-TW.ini` as RCDATA.
+- `py Build.py` scans root + `Core/|Services/|UI/|Pet/` + enabled module `.cpp`/`.rc` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored.
+- Translations: `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` merged → `Translation/<lang>.ini` (**UTF-16 LE with BOM**), embedded via `TranslationRes.rc` as RCDATA. Read at runtime with `Tr(L"Section", L"Key")`.
+- Icon gotcha: `Build.py` picks the **first alphabetically** image at project root (ignoring `Pet.png`, `GeneratedIcon.*`) — dropping a stray `*.png` at root silently changes the app icon.
 
-## Config files
+## Config files (gitignored, user-local)
 
-- `Config/*.ini` and `MakePath.txt`, `ProjectName.txt`, `TargetName.txt` are gitignored — user-local only.
-- `Log/` directory is gitignored.
+- `Config/*.ini`, `MakePath.txt` (make path for `Build.bat`), `ProjectName.txt`/`TargetName.txt` (exe name for `Build.py`; `.exe` appended if missing), `HostHint.txt`, `Version.txt`, `Log/`.

@@ -6,6 +6,8 @@
 #include <mmsystem.h>
 #include <thread>
 #include <future>
+#include <cwchar>
+#include <cstring>
 
 #ifndef GET_X_LPARAM
 #define GET_X_LPARAM(lp) ((int)(short)LOWORD(lp))
@@ -339,4 +341,113 @@ ok_w:
     }
     CloseClipboard();
     return 1;
+}
+
+void RemoteControlHook::ClipReadAll(RemoteControl::ClipboardPayload& out) {
+    out.text.clear();
+    out.dib.clear();
+
+    bool opened = false;
+    for (int i = 0; i < 5; i++) {
+        if (OpenClipboard(nullptr)) { opened = true; break; }
+        Sleep(30);
+    }
+    if (!opened) return;
+
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        HANDLE h = GetClipboardData(CF_UNICODETEXT);
+        if (h) {
+            auto* p = static_cast<wchar_t*>(GlobalLock(h));
+            if (p) {
+                out.text = p;
+                GlobalUnlock(h);
+            }
+        }
+    }
+
+    HANDLE hdib = IsClipboardFormatAvailable(CF_DIB)
+        ? GetClipboardData(CF_DIB) : nullptr;
+    if (hdib) {
+        SIZE_T sz = GlobalSize(hdib);
+        auto* p = static_cast<uint8_t*>(GlobalLock(hdib));
+        if (p && sz > 0) {
+            out.dib.assign(p, p + sz);
+            GlobalUnlock(hdib);
+        }
+    } else if (IsClipboardFormatAvailable(CF_BITMAP)) {
+        // No CF_DIB: convert a DDB to a 32bpp DIB so the image survives relay.
+        HBITMAP hbm = static_cast<HBITMAP>(GetClipboardData(CF_BITMAP));
+        if (hbm) {
+            BITMAP bm{};
+            if (GetObjectW(hbm, sizeof(bm), &bm) && bm.bmWidth > 0 && bm.bmHeight > 0) {
+                DWORD rowBytes = ((static_cast<DWORD>(bm.bmWidth) * 32 + 31) / 32) * 4;
+                DWORD imgBytes = rowBytes * static_cast<DWORD>(bm.bmHeight);
+                std::vector<uint8_t> bits(imgBytes);
+                BITMAPINFO bi{};
+                bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+                bi.bmiHeader.biWidth = bm.bmWidth;
+                bi.bmiHeader.biHeight = bm.bmHeight;
+                bi.bmiHeader.biPlanes = 1;
+                bi.bmiHeader.biBitCount = 32;
+                bi.bmiHeader.biCompression = BI_RGB;
+                bi.bmiHeader.biSizeImage = imgBytes;
+                HDC dc = CreateCompatibleDC(nullptr);
+                if (dc) {
+                    if (GetDIBits(dc, hbm, 0, static_cast<UINT>(bm.bmHeight),
+                                  bits.data(), &bi, DIB_RGB_COLORS) > 0) {
+                        out.dib.resize(sizeof(BITMAPINFOHEADER) + imgBytes);
+                        memcpy(out.dib.data(), &bi.bmiHeader, sizeof(BITMAPINFOHEADER));
+                        memcpy(out.dib.data() + sizeof(BITMAPINFOHEADER), bits.data(), imgBytes);
+                    }
+                    DeleteDC(dc);
+                }
+            }
+        }
+    }
+
+    CloseClipboard();
+}
+
+bool RemoteControlHook::ClipWriteAll(const RemoteControl::ClipboardPayload& p) {
+    bool opened = false;
+    for (int i = 0; i < 5; i++) {
+        if (OpenClipboard(nullptr)) { opened = true; break; }
+        Sleep(30);
+    }
+    if (!opened) return false;
+
+    EmptyClipboard();
+
+    if (!p.text.empty()) {
+        SIZE_T sz = (p.text.size() + 1) * sizeof(wchar_t);
+        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, sz);
+        if (h) {
+            auto* d = static_cast<wchar_t*>(GlobalLock(h));
+            if (d) {
+                wmemcpy(d, p.text.c_str(), p.text.size());
+                d[p.text.size()] = 0;
+                GlobalUnlock(h);
+                if (!SetClipboardData(CF_UNICODETEXT, h)) GlobalFree(h);
+            } else {
+                GlobalFree(h);
+            }
+        }
+    }
+
+    if (!p.dib.empty()) {
+        HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, p.dib.size());
+        if (h) {
+            auto* d = static_cast<uint8_t*>(GlobalLock(h));
+            if (d) {
+                memcpy(d, p.dib.data(), p.dib.size());
+                GlobalUnlock(h);
+                if (!SetClipboardData(CF_DIB, h)) GlobalFree(h);
+            } else {
+                GlobalFree(h);
+            }
+        }
+    }
+
+    CloseClipboard();
+    return true;
 }

@@ -290,14 +290,14 @@ void RemoteControlModule::RunSend() {
         std::vector<uint8_t> batch;
 
         if (InterlockedExchange(&m_pendingToggleOff, 0)) {
-            int n = RemoteControlHook::ClipRead(nullptr, 0);
-            if (n < 0) n = 0;
-            std::wstring t(static_cast<size_t>(n + 1), 0);
-            if (n > 0) RemoteControlHook::ClipRead(t.data(), n + 1);
-            t.resize(static_cast<size_t>(n));
-            auto m = RemoteControl::Proto::clip(RemoteControl::Proto::CLIP_SET, t.c_str(), n);
+            RemoteControl::ClipboardPayload clip;
+            RemoteControlHook::ClipReadAll(clip);
+            auto m = RemoteControl::Proto::clip(
+                RemoteControl::Proto::CLIP_SET, clip);
             batch.insert(batch.end(), m.begin(), m.end());
-            Log(L"[*] Clipboard sent (%d chars)\n", n);
+            Log(L"[*] Clipboard sent (text %d chars, image %d bytes)\n",
+                static_cast<int>(clip.text.size()),
+                static_cast<int>(clip.dib.size()));
         }
 
         LONG dx = InterlockedExchange(&m_mouseDx, 0);
@@ -364,17 +364,14 @@ void RemoteControlModule::RunSvRecv() {
                 m_ftRx, savePathW))
             continue;
 
-        if (pay.size() >= 5 && pay[0] == RemoteControl::Proto::CLIP_RESP) {
-            uint32_t b = RemoteControl::Proto::r32(pay.data() + 1);
-            int ch = static_cast<int>(b / sizeof(wchar_t));
-            if (pay.size() < 5 + b) continue;
-            if (ch > 0) {
-                std::wstring tmp(reinterpret_cast<const wchar_t*>(pay.data() + 5), ch);
-                RemoteControlHook::ClipWrite(tmp.c_str(), ch);
-            } else {
-                RemoteControlHook::ClipWrite(L"", 0);
+        if (pay.size() >= 2 && pay[0] == RemoteControl::Proto::CLIP_RESP) {
+            RemoteControl::ClipboardPayload clip;
+            int textChars = 0, dibBytes = 0;
+            if (RemoteControl::Proto::unclip(pay, clip, &textChars, &dibBytes)) {
+                RemoteControlHook::ClipWriteAll(clip);
+                Log(L"[*] Clipboard synced (text %d chars, image %d bytes)\n",
+                    textChars, dibBytes);
             }
-            Log(L"[*] Clipboard synced (%d chars)\n", ch);
         }
     }
 }
@@ -509,29 +506,21 @@ void RemoteControlModule::RunClient() {
                 case RemoteControl::Proto::RELEASE_ALL:
                     RemoteControlHook::ReplayReleaseAll();
                     break;
-                case RemoteControl::Proto::CLIP_SET:
-                    if (n >= 5) {
-                        uint32_t b = RemoteControl::Proto::r32(p + 1);
-                        int ch = static_cast<int>(b / sizeof(wchar_t));
-                        if (n < 5 + b) break;
-                        if (ch > 0) {
-                            std::wstring tmp(
-                                reinterpret_cast<const wchar_t*>(p + 5), ch);
-                            RemoteControlHook::ClipWrite(tmp.c_str(), ch);
-                        } else {
-                            RemoteControlHook::ClipWrite(L"", 0);
-                        }
-                        Log(L"[*] Clipboard received (%d chars)\n", ch);
+                case RemoteControl::Proto::CLIP_SET: {
+                    RemoteControl::ClipboardPayload clip;
+                    int textChars = 0, dibBytes = 0;
+                    if (RemoteControl::Proto::unclip(pay, clip, &textChars, &dibBytes)) {
+                        RemoteControlHook::ClipWriteAll(clip);
+                        Log(L"[*] Clipboard received (text %d chars, image %d bytes)\n",
+                            textChars, dibBytes);
                     }
                     break;
+                }
                 case RemoteControl::Proto::CLIP_GET: {
-                    int len = RemoteControlHook::ClipRead(nullptr, 0);
-                    if (len < 0) len = 0;
-                    std::wstring t(static_cast<size_t>(len + 1), 0);
-                    if (len > 0) RemoteControlHook::ClipRead(t.data(), len + 1);
-                    t.resize(static_cast<size_t>(len));
+                    RemoteControl::ClipboardPayload clip;
+                    RemoteControlHook::ClipReadAll(clip);
                     auto reply = RemoteControl::Proto::clip(
-                        RemoteControl::Proto::CLIP_RESP, t.c_str(), len);
+                        RemoteControl::Proto::CLIP_RESP, clip);
                     std::lock_guard<std::mutex> lk(m_clMx);
                     if (m_clSocket != INVALID_SOCKET)
                         NetworkService::Send(m_clSocket, reply.data(),

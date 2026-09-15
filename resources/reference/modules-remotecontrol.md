@@ -21,6 +21,8 @@ Defined in `RemoteControlTypes.h`. Custom binary protocol over TCP:
 - Packet headers with type, length, sequence fields
 - Supports keyboard/mouse event relay
 - File transfer via `FileTransferService`
+- Clipboard sync (`CLIP_SET`/`CLIP_GET`/`CLIP_RESP`) carries a multi-format container: UTF-16 text block plus optional `CF_DIB` image block; receiver replaces its clipboard atomically. Images > `kMaxClipPayload` (~10 MB wire limit) are dropped at pack time, text is always kept.
+- Pack/unpack lives in `RemoteControlTypes.h` (`Proto::clip`/`Proto::unclip`); `RemoteControlHook::ClipReadAll`/`ClipWriteAll` also fall back to converting a `CF_BITMAP` DDB to a 32bpp DIB. Verified by `Debug/RemoteControl/ClipboardTest`.
 
 ## External Dependencies
 

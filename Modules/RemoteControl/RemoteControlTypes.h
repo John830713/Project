@@ -14,6 +14,11 @@
 
 namespace RemoteControl {
 
+struct ClipboardPayload {
+    std::wstring text;        // UTF-16 clipboard text (empty = none)
+    std::vector<uint8_t> dib; // CF_DIB bytes (empty = none)
+};
+
 namespace Proto {
 
 enum MsgType : uint8_t {
@@ -34,6 +39,15 @@ enum MsgType : uint8_t {
     FT_DIR_BEGIN,
     HOOK_STATUS
 };
+
+enum ClipFormat : uint8_t {
+    CLIP_FMT_TEXT = 0,
+    CLIP_FMT_DIB = 1
+};
+
+// Must stay below NetworkService::kMaxMsgSize (10 MB); the frame prefix plus
+// per-format headers must never push a message over the wire limit.
+constexpr uint32_t kMaxClipPayload = 10 * 1024 * 1024 - 64;
 
 inline void w16(uint8_t* p, uint16_t v) {
     p[0] = static_cast<uint8_t>((v >> 8) & 0xFF);
@@ -120,20 +134,81 @@ inline std::vector<uint8_t> simple(uint8_t t) {
     return frame(&t, 1);
 }
 
-inline std::vector<uint8_t> clip(uint8_t t, const wchar_t* s, int n) {
-    if (n < 0) throw std::invalid_argument("clip: negative character count");
-    if (n == 0) {
-        uint8_t hdr[5] = { t };
-        w32(hdr + 1, 0);
-        return frame(hdr, 5);
+inline std::vector<uint8_t> clip(uint8_t t, const ClipboardPayload& c) {
+    // Layout: [type][format count][(fmt][len:4][data)]*  — one frame holds the
+    // complete clipboard state (text + optional DIB image) so the receiver can
+    // replace its clipboard atomically. An empty container means "clear".
+    std::vector<uint8_t> p;
+    p.push_back(t);
+    p.push_back(0); // format count placeholder
+
+    bool hasText = !c.text.empty();
+    bool hasDib  = !c.dib.empty();
+
+    size_t textBytes = c.text.size() * sizeof(wchar_t);
+    size_t total = 2u;
+    if (hasText) total += textBytes + 5u;
+    if (hasDib)  total += c.dib.size() + 5u;
+
+    // Keep the frame within the wire limit; on overflow drop the image but keep
+    // the text (text arrives as its own block and always fits in practice).
+    if (hasDib && total > kMaxClipPayload) {
+        hasDib = false;
+        total -= c.dib.size() + 5u;
     }
-    if (s == nullptr) throw std::invalid_argument("clip: null string");
-    uint32_t b = static_cast<uint32_t>(static_cast<size_t>(n) * sizeof(wchar_t));
-    std::vector<uint8_t> p(5 + b);
-    p[0] = t;
-    w32(p.data() + 1, b);
-    std::memcpy(p.data() + 5, s, b);
+
+    p[1] = static_cast<uint8_t>((hasText ? 1 : 0) + (hasDib ? 1 : 0));
+
+    if (hasText) {
+        p.push_back(CLIP_FMT_TEXT);
+        uint8_t h[4];
+        w32(h, static_cast<uint32_t>(textBytes));
+        p.insert(p.end(), h, h + 4);
+        const uint8_t* s = reinterpret_cast<const uint8_t*>(c.text.c_str());
+        p.insert(p.end(), s, s + textBytes);
+    }
+    if (hasDib) {
+        p.push_back(CLIP_FMT_DIB);
+        uint8_t h[4];
+        w32(h, static_cast<uint32_t>(c.dib.size()));
+        p.insert(p.end(), h, h + 4);
+        p.insert(p.end(), c.dib.begin(), c.dib.end());
+    }
     return frame(p.data(), static_cast<uint32_t>(p.size()));
+}
+
+// Inverse of clip(): parses a CLIP_SET/CLIP_RESP container payload (already
+// stripped of the frame header) back into a ClipboardPayload. Returns false on
+// malformed data. The optional count outputs mirror what the module logs.
+inline bool unclip(const std::vector<uint8_t>& pay, ClipboardPayload& out,
+                   int* textChars, int* dibBytes)
+{
+    out.text.clear();
+    out.dib.clear();
+    if (textChars) *textChars = 0;
+    if (dibBytes)  *dibBytes  = 0;
+    if (pay.size() < 2) return false;
+
+    uint32_t fmtCount = pay[1];
+    size_t pos = 2;
+    for (uint32_t i = 0; i < fmtCount; i++) {
+        if (pos + 5 > pay.size()) return false;
+        uint8_t fmt = pay[pos];
+        uint32_t n  = r32(pay.data() + pos + 1);
+        pos += 5;
+        if (pos + n > pay.size()) return false;
+
+        if (fmt == CLIP_FMT_TEXT) {
+            uint32_t ch = n / sizeof(wchar_t);
+            out.text.assign(reinterpret_cast<const wchar_t*>(pay.data() + pos), ch);
+            if (textChars) *textChars = static_cast<int>(ch);
+        } else if (fmt == CLIP_FMT_DIB) {
+            out.dib.assign(pay.data() + pos, pay.data() + pos + n);
+            if (dibBytes) *dibBytes = static_cast<int>(n);
+        }
+        pos += n;
+    }
+    return true;
 }
 
 inline std::vector<uint8_t> fileBegin(const char* name, int nlen, uint64_t size) {
