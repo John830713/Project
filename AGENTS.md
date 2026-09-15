@@ -31,7 +31,7 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
   LogFile=Log_AutoKey.txt
   ```
 - List values accept `,` or `;` separators. `Enabled=0` excludes from build without deleting files.
-- `Build.py` hardcodes the include path `Modules/<Name>/<Name>Module.h` — a module's main class header **must** be named `<Name>Module.h`.
+- The generated registry includes `Modules/<Name>/<Name>Module.h`, where `<Name>` is the manifest's `Name` value — so **`Name` must equal the directory name** and the main class header must be named `<Name>Module.h`. `Class` must match the C++ class (defaults to `<Name>Module`). A wrong `Name`/`Class` only breaks when the generated registry compiles, after `py Build.py`.
 - New module: copy `Modules/Template/`, rename files/class, then `py Build.py`.
 - Per-module runtime config/log use the manifest's `ConfigFile`/`LogFile` names (files in `Config/`, `Log/`).
 
@@ -41,12 +41,14 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
 - Test flags: `-O0 -g -DENABLE_DEBUG_STATE=1`; linked `-luser32 -lkernel32` (TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`), **no GDI+**.
 - Tests compile the real `Core/ModuleManager.cpp` as a unit (MenuOrderTest/DebugStateTest) and the real `RemoteControlHook.cpp` (ClipboardTest) — keep Console/DBG behaviors out of code you want unit-testable.
 - `Debug/UI/GuiTest.cpp` (E2E GUI) has **no Makefile target** — compile manually if needed.
+- New test files under `Debug/` are **not auto-discovered**: each target is a hardcoded Makefile rule listing its own sources and extra `-l` libs. Copy the existing pattern (`$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) [extra libs]`) and add the exe to `TEST_TARGETS`.
 
 ## Codegen & translation
 
 - `py Build.py` scans root + `Core/|Services/|UI/|Pet/` + enabled module `.cpp`/`.rc` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored.
-- Translations: `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` merged → `Translation/<lang>.ini` (**UTF-16 LE with BOM**), embedded via `TranslationRes.rc` as RCDATA. Read at runtime with `Tr(L"Section", L"Key")`.
-- Icon gotcha: `Build.py` picks the **first alphabetically** image at project root (ignoring `Pet.png`, `GeneratedIcon.*`) — dropping a stray `*.png` at root silently changes the app icon.
+- Translations: `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` merged (later sources override) → `Translation/<lang>.ini` (**UTF-16 LE with BOM**), embedded via `TranslationRes.rc` as RCDATA (lang code → resource name, e.g. `zh-TW` → `ZH_TW`). Read at runtime with `Tr(L"Section", L"Key")`.
+- **English strings in the code ARE the translation keys**: `Tr()` returns the passed text verbatim when `lang=en` or the key is missing. Add/modify UI text in English first, then zh-TW; `Translation/en.ini` is a manual English reference that is never loaded at runtime (only `_src/` is merged, only zh-TW is embedded).
+- Icon gotcha: `Build.py` picks the **first alphabetically** image at project root, scanned from `.png/.ico/.jpg/.jpeg/.bmp` (case-insensitive), ignoring `Pet.png` and `GeneratedIcon.*` — dropping a stray image at root silently changes the app icon. `Test.png` is the intended icon source.
 
 ## Config files (gitignored, user-local)
 
