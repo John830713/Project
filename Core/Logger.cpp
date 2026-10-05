@@ -45,6 +45,47 @@ namespace {
 
         return std::wstring(buffer);
     }
+
+//------------------------------------------------------------------------------
+// ToUtf8 - converts a wide string to UTF-8.
+//
+// Log files are written as UTF-8 so non-ASCII text (e.g. paths containing CJK
+// characters) survives the round-trip. std::wofstream cannot be used for this:
+// under a narrow stream locale it throws std::ios_failure on characters that are
+// not representable in the external encoding, which would abort the caller.
+//------------------------------------------------------------------------------
+
+    std::string ToUtf8(const std::wstring& w) {
+        if (w.empty()) return {};
+
+        int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
+                                    nullptr, 0, nullptr, nullptr);
+        if (n <= 0) return {};
+
+        std::string s(static_cast<size_t>(n), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, w.c_str(), static_cast<int>(w.size()),
+                            &s[0], n, nullptr, nullptr);
+        return s;
+    }
+
+//------------------------------------------------------------------------------
+// AppendLine - appends a UTF-8 line to a log file. Never throws.
+//------------------------------------------------------------------------------
+
+    void AppendLine(const fs::path& filePath, const std::string& utf8Line) {
+        try {
+            fs::create_directories(filePath.parent_path());
+
+            std::ofstream file(filePath, std::ios::binary | std::ios::app);
+            if (!file.is_open()) return;
+
+            file << utf8Line << "\n";
+            file.close();
+        } catch (...) {
+            // Logging must never take down the caller.
+        }
+    }
+
 }
 
 //==============================================================================
@@ -55,19 +96,9 @@ namespace {
 
 void Logger::Write(const std::wstring& category, const std::wstring& message) {
 
-    fs::create_directories(GetLogDir());
+    std::wstring logEntry = L"[" + GetTimestampString() + L"] [" + category + L"] " + message;
 
-    std::wstring timestamp = GetTimestampString();
-
-    std::wstring logEntry = L"[" + timestamp + L"] [" + category + L"] " + message + L"\n";
-
-    fs::path filePath = GetLogDir() / (category + L".txt");
-
-    std::wofstream file(filePath, std::ios::app);
-    if (file.is_open()) {
-        file << logEntry;
-        file.close();
-    }
+    AppendLine(GetLogDir() / (category + L".txt"), ToUtf8(logEntry));
 }
 
 //==============================================================================
@@ -78,17 +109,7 @@ void Logger::Write(const std::wstring& category, const std::wstring& message) {
 
 void Logger::WriteModuleLog(const std::wstring& moduleName, const std::wstring& message) {
 
-    fs::create_directories(GetLogDir());
+    std::wstring logEntry = L"[" + GetTimestampString() + L"] [" + moduleName + L"] " + message;
 
-    std::wstring timestamp = GetTimestampString();
-
-    std::wstring logEntry = L"[" + timestamp + L"] [" + moduleName + L"] " + message + L"\n";
-
-    fs::path filePath = GetLogDir() / (L"Log_" + moduleName + L".txt");
-
-    std::wofstream file(filePath, std::ios::app);
-    if (file.is_open()) {
-        file << logEntry;
-        file.close();
-    }
+    AppendLine(GetLogDir() / (L"Log_" + moduleName + L".txt"), ToUtf8(logEntry));
 }

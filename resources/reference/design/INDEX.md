@@ -6,8 +6,10 @@ Desktop pet system architecture and reusable UI patterns.
 
 | File | Description |
 |------|-------------|
-| [spec.md](spec.md) | Architecture — module system, context menu, config, build, agent documentation convention |
+| [spec.md](spec.md) | Architecture — module system, context menu, config, build, dialogs, MainWindow, debug system |
 | [usage.md](usage.md) | Patterns — new module, context menu item, dialog |
+| [debugging-guide.md](debugging-guide.md) | **Start here when debugging** — no crash reporting, silent exits, CJK/wofstream trap, how to simulate |
+| [crash-silent-exit-playbook.md](crash-silent-exit-playbook.md) | Step-by-step: classify and localize a silent process exit |
 
 ## Principles
 

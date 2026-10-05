@@ -400,7 +400,23 @@ Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
 
 ---
 
-## 8. Debug System
+## 8. Logging
+
+`Core/Logger` writes to `Log/` as **UTF-8** (converted via `WideCharToMultiByte`).
+
+Log files are opened with `std::ofstream`, not `std::wofstream`. A `std::wofstream` throws
+`std::ios_failure` ("_M_convert_to_external conversion error") when the message contains
+characters not representable in the external encoding — which happens for any CJK path on a
+narrow-locale stream. An uncaught `std::ios_failure` from a logging call aborts the process
+with `std::terminate` and **no dialog**, so writing a user-supplied path to a log is enough
+to kill the app.
+
+`Logger::Write` / `WriteModuleLog` therefore convert to UTF-8 explicitly and never throw —
+logging must not be able to take down the caller.
+
+---
+
+## 9. Debug System
 
 ### Two compile-time gates
 
@@ -457,7 +473,7 @@ When `DEBUG_CONSOLE` is defined, a timer (ID=99) fires 3s after startup and runs
 
 ---
 
-## 12. Agent Documentation Convention (`AGENTS.md`)
+## 11. Agent Documentation Convention (`AGENTS.md`)
 
 ### Design principle
 
