@@ -15,6 +15,18 @@
 #include <cstdarg>
 #include <vector>
 
+namespace {
+
+// A vanished peer must not pin a worker thread indefinitely. Without these the
+// accepted socket blocks in send()/recv() until the OS gives up (Windows
+// keepalive defaults to a 2 hour idle probe), holding m_svMx the whole time and
+// deadlocking StopRemoteControl on the UI thread.
+constexpr DWORD kIoTimeoutMs = 3000;
+constexpr DWORD kKeepAliveIdleMs = 5000;
+constexpr DWORD kKeepAliveIntervalMs = 1000;
+
+}  // namespace
+
 //==============================================================================
 // Constructor / Configuration
 //==============================================================================
@@ -247,8 +259,9 @@ void RemoteControlModule::RunAccept() {
 
         setsockopt(c, IPPROTO_TCP, TCP_NODELAY,
                    reinterpret_cast<char*>(&one), sizeof(one));
-        setsockopt(c, SOL_SOCKET, SO_KEEPALIVE,
-                   reinterpret_cast<char*>(&one), sizeof(one));
+        NetworkService::ApplyTimeouts(c, kIoTimeoutMs);
+        NetworkService::ApplyKeepAlive(c, kKeepAliveIdleMs,
+                                       kKeepAliveIntervalMs);
 
         std::vector<uint8_t> pay;
         if (!NetworkService::RecvMsg(c, pay) || pay.empty() || pay[0] != RemoteControl::Proto::AUTH) {
@@ -316,6 +329,7 @@ void RemoteControlModule::RunSend() {
             }
         }
 
+        bool lost = false;
         if (!batch.empty()) {
             std::lock_guard<std::mutex> lk(m_svMx);
             if (m_svSocket != INVALID_SOCKET &&
@@ -324,9 +338,15 @@ void RemoteControlModule::RunSend() {
             {
                 closesocket(m_svSocket);
                 m_svSocket = INVALID_SOCKET;
-                UpdateLed();
-                Log(L"[!] Send connection lost\n");
+                lost = true;
             }
+        }
+
+        // UpdateLed() locks m_svMx and m_clMx itself, so it must never run
+        // while either is held here or this thread deadlocks against itself.
+        if (lost) {
+            UpdateLed();
+            Log(L"[!] Send connection lost\n");
         }
     }
 }
@@ -351,7 +371,24 @@ void RemoteControlModule::RunSvRecv() {
         if (select(0, &fs, nullptr, nullptr, &tv) <= 0) continue;
 
         std::vector<uint8_t> pay;
-        if (!NetworkService::RecvMsg(c, pay)) { Sleep(200); continue; }
+        if (!NetworkService::RecvMsg(c, pay)) {
+            // Peer is gone (or the idle connection just died). Tear the socket
+            // down instead of spinning on it: leaving m_svSocket set keeps the
+            // LED green and makes every later Send fail on a dead handle.
+            bool owned = false;
+            {
+                std::lock_guard<std::mutex> lk(m_svMx);
+                if (m_svSocket == c) {
+                    m_svSocket = INVALID_SOCKET;
+                    owned = true;
+                }
+            }
+            if (!owned) break;
+            closesocket(c);
+            UpdateLed();
+            Log(L"[!] Receive connection lost\n");
+            break;
+        }
 
         std::wstring savePath = GetValue(L"SavePath");
         std::string savePathA = ToUtf8(savePath);
@@ -426,8 +463,9 @@ void RemoteControlModule::RunClient() {
         int one = 1;
         setsockopt(s, IPPROTO_TCP, TCP_NODELAY,
                    reinterpret_cast<char*>(&one), sizeof(one));
-        setsockopt(s, SOL_SOCKET, SO_KEEPALIVE,
-                   reinterpret_cast<char*>(&one), sizeof(one));
+        NetworkService::ApplyTimeouts(s, kIoTimeoutMs);
+        NetworkService::ApplyKeepAlive(s, kKeepAliveIdleMs,
+                                       kKeepAliveIntervalMs);
 
         auto am = RemoteControl::Proto::auth(
             password.c_str(), static_cast<int>(password.size()));
