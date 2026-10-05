@@ -84,7 +84,12 @@ int HostApp::Run() {
 #endif
 
     MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
+    BOOL fetched;
+    while ((fetched = GetMessageW(&msg, nullptr, 0, 0)) != 0) {
+        if (fetched == -1) {
+            Logger::Write(L"Error", L"GetMessageW failed; terminating message loop.");
+            break;
+        }
 #if DEBUG_CONSOLE
         if (msg.hwnd == nullptr && msg.message == WM_APP_CONSOLE_CMD) {
             const wchar_t* cmd = reinterpret_cast<const wchar_t*>(msg.lParam);
@@ -116,7 +121,7 @@ int HostApp::Run() {
     m_moduleManager.ShutdownAllModules();
     timeEndPeriod(1);
     Logger::Write(L"Main", L"Host application shutdown completed.");
-    return static_cast<int>(msg.wParam);
+    return (fetched == 0) ? static_cast<int>(msg.wParam) : 1;
 }
 
 HINSTANCE HostApp::GetInstance() const { return m_hInstance; }

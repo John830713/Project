@@ -15,24 +15,45 @@ Step-by-step for "the pet disappeared with no error dialog".
 | Content | Classification | Next step |
 |---|---|---|
 | only `initialization started` | init failure, no window ever appeared | read `Log\Error.txt` |
-| `initialization completed`, no `shutdown completed` | **crash** | go to Step 3 |
+| `initialization completed`, no `shutdown completed` | **crash** | go to Step 2 |
 | both present | clean `WM_QUIT` exit | go to Step 4 |
+
+`Log\` also holds `Crash.txt` whenever a crash handler ran, and `Error.txt` for
+non-fatal failures.
 
 No useful content at all → the process died before `Logger::Initialize`, or it is a
 different binary than the one you think. Confirm which `.exe` the user runs:
 `Logger::GetBaseDir()` derives `Log\` from `GetModuleFileNameW`, so logs land beside
 the executable, not in the source tree.
 
-## Step 2 — add crash reporting before reproducing again
+## Step 2 — read `Log\Crash.txt`
 
-Without this, Step 1 is the only evidence available. In `main.cpp`, before
-`HostApp`:
+`main.cpp` installs crash handlers before any service starts, so a crash is recorded.
+`Crash.txt` is UTF-8 and append-only:
 
-- `SetUnhandledExceptionFilter` → log the exception code and
-  `GetExceptionInformation()` to `Log\Crash.txt`, then flush.
-- `std::set_terminate` → log the terminate reason.
+```
+[2026-10-05 18:13:38] C++ exception
+  type    : std::exception
+  what    : Failed to open file: C:\...\BIOS.bin
 
-Both must flush explicitly; the process is about to die.
+[2026-10-05 18:13:48] SEH exception
+  exception code : 0xC0000005
+  exception addr : 0x00007FFA...
+  info[0]        : 0x0000000000000000
+  thread id      : 5736
+```
+
+Read it with UTF-8 encoding — `Get-Content` may show mojibake for non-ASCII.
+
+| Entry | Meaning |
+|---|---|
+| `SEH exception`, code `0xC0000005` | access violation; `info[0]` is the faulting address |
+| `C++ exception` | a `std::exception` escaped to `wWinMain`; `what()` is the message |
+| `std::terminate` | terminate reached without a `what()` |
+| nothing, with no `shutdown completed` in `Main.txt` | not a crash — go to Step 4 |
+
+`HostApp::Run()` breaks the message loop on `GetMessageW` returning `-1` and writes
+`GetMessageW failed; terminating message loop.` to `Log\Error.txt`.
 
 ## Step 3 — localize the crash
 

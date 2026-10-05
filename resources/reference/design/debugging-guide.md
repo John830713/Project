@@ -15,20 +15,27 @@ or a "silent exit".
 
 ---
 
-## 1. The app has no crash reporting at all
+## 1. Crash reporting lives in `main.cpp` — read `Log\Crash.txt` first
 
-`grep` for `SetUnhandledExceptionFilter`, `std::set_terminate`, `_set_abort_behavior`
-across the project returns **nothing**.
+`wWinMain` installs three handlers before touching any service:
 
-Consequences:
+| Handler | Catches |
+|---|---|
+| `SetUnhandledExceptionFilter(CrashFilter)` | SEH: access violations, stack overflow, divide-by-zero |
+| top-level `try`/`catch` in `wWinMain` | C++ exceptions escaping `Initialize` / `Run` |
+| `std::set_terminate(TerminateHandler)` | `std::terminate` as a last resort |
 
-- An access violation ends the process with zero trace.
-- An uncaught C++ exception calls `std::terminate` — also silent.
-- The binary is linked `-mwindows`, so there is **no console and no stderr**.
+All three append to **`Log\Crash.txt`** (UTF-8) with a timestamp, exception code,
+exception address, and for C++ exceptions the `what()` text. `CrashFilter` uses raw
+`CreateFileW`/`WriteFile` rather than `Logger` or `std::ofstream`, because it runs with
+the C++ runtime in an unknown state.
 
-Any crash therefore looks identical to "the pet just vanished". Before hunting a
-crash, add the exception handlers (see [playbook](crash-silent-exit-playbook.md))
-so the next occurrence produces evidence.
+**Always read `Log\Crash.txt` before theorising.** The absence of a `Crash.txt` entry
+alongside a missing `shutdown completed` in `Log\Main.txt` means the failure was not a
+crash — look at the clean-exit path instead.
+
+`Crash.txt` is append-only and never truncated, so entries from previous sessions
+accumulate. Compare timestamps against `Log\Main.txt` to find the relevant one.
 
 ## 2. `Log\Main.txt` classifies every exit
 
