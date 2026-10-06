@@ -106,8 +106,8 @@ Debug/Core/MenuOrderTest.exe: Debug/Core/MenuOrderTest.cpp Core/ModuleManager.cp
 Debug/RemoteControl/ClipboardTest.exe: Debug/RemoteControl/ClipboardTest.cpp Modules/RemoteControl/RemoteControlHook.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lgdi32
 
-Debug/RemoteControl/DisconnectTest.exe: Debug/RemoteControl/DisconnectTest.cpp Services/NetworkService.cpp
-	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32
+Debug/RemoteControl/DisconnectTest.exe: Debug/RemoteControl/DisconnectTest.cpp Services/NetworkService.cpp Services/FileTransferService.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32 -lole32 -luuid
 
 -include $(DEPS)
 

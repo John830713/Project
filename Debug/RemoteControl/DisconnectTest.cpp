@@ -22,6 +22,7 @@
 //==============================================================================
 
 #include "Services/NetworkService.h"
+#include "Services/FileTransferService.h"
 #include "Modules/RemoteControl/RemoteControlTypes.h"
 
 #include <winsock2.h>
@@ -513,6 +514,46 @@ void TestEpochBumpDoesNotReviveOldThreads() {
     (void)oldAlive;
 }
 
+// -----------------------------------------------------------------------------
+// 8. FileTransferService sender workers must spawn exactly once. The old code
+//    called std::thread(senderThread).detach() on every Start(), leaking one
+//    permanent thread per Stop/Start cycle — each waiting on the same queue.
+// -----------------------------------------------------------------------------
+void TestSenderSpawnedOnlyOnce() {
+    std::printf("\n-- file-transfer sender thread spawns once --\n");
+
+    int before = FileTransferService::DebugSenderSpawnCount();
+
+    SOCKET sock = INVALID_SOCKET;
+    std::mutex mx;
+
+    // Simulates several Start/Stop cycles (StartRemoteControl calls both
+    // Start*Sender each time).
+    for (int cycle = 0; cycle < 5; ++cycle) {
+        Check(FileTransferService::StartSvSender(&sock, &mx),
+              "StartSvSender accepts valid arguments");
+        Check(FileTransferService::StartClSender(&sock, &mx),
+              "StartClSender accepts valid arguments");
+    }
+
+    int spawned = FileTransferService::DebugSenderSpawnCount() - before;
+    Check(spawned == 2,
+          "5 start cycles spawn exactly 2 workers (old code: 10)");
+    std::printf("       (spawned %d workers)\n", spawned);
+
+    Check(!FileTransferService::StartSvSender(nullptr, nullptr),
+          "StartSvSender rejects null arguments");
+    Check(!FileTransferService::StartClSender(nullptr, nullptr),
+          "StartClSender rejects null arguments");
+
+    // Progress HWND churn races SetProgressHwnd against updateTaskbar's
+    // release; without s_tbMx this is a COM use-after-free under a fuzzer.
+    for (int i = 0; i < 50; ++i) {
+        FileTransferService::SetProgressHwnd(nullptr);
+    }
+    Check(true, "repeated SetProgressHwnd(nullptr) does not crash");
+}
+
 }  // namespace
 
 int main() {
@@ -532,6 +573,7 @@ int main() {
     TestParsePortNeverThrows();
     TestRecvLoopSurvivesDisconnect();
     TestEpochBumpDoesNotReviveOldThreads();
+    TestSenderSpawnedOnlyOnce();
 
     NetworkService::Cleanup();
 

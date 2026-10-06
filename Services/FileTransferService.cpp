@@ -6,6 +6,7 @@
 #include <queue>
 #include <thread>
 #include <condition_variable>
+#include <atomic>
 #include <string>
 #include <vector>
 
@@ -21,8 +22,13 @@ void SetProgressCB(ProgressCallback cb, void* ud) {
 
 static HWND s_progHwnd = nullptr;
 static ITaskbarList3* s_taskbar = nullptr;
+// Guards s_progHwnd/s_taskbar: the UI thread Releases the COM pointer in
+// SetProgressHwnd(nullptr) during Stop while a sender thread may be inside
+// updateTaskbar() — without the lock that is a use-after-free.
+static std::mutex s_tbMx;
 
 void SetProgressHwnd(HWND hwnd) {
+    std::lock_guard<std::mutex> lk(s_tbMx);
     s_progHwnd = hwnd;
     if (s_taskbar) { s_taskbar->Release(); s_taskbar = nullptr; }
     if (!hwnd) return;
@@ -32,6 +38,7 @@ void SetProgressHwnd(HWND hwnd) {
 }
 
 static void updateTaskbar(uint64_t done, uint64_t total) {
+    std::lock_guard<std::mutex> lk(s_tbMx);
     if (!s_taskbar || !s_progHwnd) return;
     if (total == 0 || done >= total) {
         s_taskbar->SetProgressState(s_progHwnd, TBPF_NOPROGRESS);
@@ -192,6 +199,9 @@ static void sendDir(const wchar_t* absBase, const wchar_t* absDir,
 static std::queue<std::wstring> s_sendQ;
 static std::mutex s_sendMx;
 static std::condition_variable s_sendCv;
+static std::atomic<int> s_spawnCount{0};
+
+int DebugSenderSpawnCount() { return s_spawnCount.load(); }
 
 static void senderThread() {
     while (true) {
@@ -217,8 +227,16 @@ static void senderThread() {
 
 bool StartSvSender(SOCKET* ps, std::mutex* mx) {
     if (!ps || !mx) return false;
+    // The worker loops forever, so spawning it per Start() would leak one
+    // detached thread per Stop/Start cycle (and queue work to N duplicates).
+    // Bind the socket/mutex pointers and spawn exactly once; they point at
+    // the same RemoteControlModule members on every call.
+    static std::atomic<bool> started{false};
+    bool expected = false;
+    if (!started.compare_exchange_strong(expected, true)) return true;
     s_pSock = ps;
     s_pMx   = mx;
+    s_spawnCount.fetch_add(1);
     std::thread(senderThread).detach();
     return true;
 }
@@ -322,8 +340,13 @@ static void senderThreadCl() {
 
 bool StartClSender(SOCKET* ps, std::mutex* mx) {
     if (!ps || !mx) return false;
+    // See StartSvSender: spawn once, never per Start().
+    static std::atomic<bool> started{false};
+    bool expected = false;
+    if (!started.compare_exchange_strong(expected, true)) return true;
     s_pSockCl = ps;
     s_pMxCl   = mx;
+    s_spawnCount.fetch_add(1);
     std::thread(senderThreadCl).detach();
     return true;
 }

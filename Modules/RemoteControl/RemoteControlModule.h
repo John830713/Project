@@ -96,6 +96,11 @@ private:
     IHostContext* m_host = nullptr;
 
     std::vector<ConfigFieldDefinition> m_definitions;
+    // m_values is read by worker threads (GetValue/GetBoolValue/GetPortValue
+    // on every received message and at thread start) and written by the UI
+    // thread (SetValue from the settings dialog, LoadConfig). std::map has no
+    // internal synchronization, so every access goes through this mutex.
+    mutable std::mutex m_valuesMx;
     std::map<std::wstring, std::wstring> m_values;
 
     std::atomic<bool> m_running{false};
@@ -124,6 +129,11 @@ private:
     volatile LONG m_mouseDy = 0;
     volatile LONG m_pendingToggleOff = 0;
 
+    // m_ftRx is touched by three threads: RunAccept resets it on a new
+    // client, RunSvRecv feeds it ProcessMsg, and StopRemoteControl resets it
+    // from the UI thread. ResetRecv closes an open file handle, so an
+    // unsynchronized overlap is a double-close / use-after-free.
+    std::mutex m_ftRxMx;
     FileTransferService::ReceiveState m_ftRx;
 
     HWND m_led = nullptr;

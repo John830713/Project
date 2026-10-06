@@ -55,6 +55,7 @@ void RemoteControlModule::InitializeDefinitions() {
 }
 
 void RemoteControlModule::InitializeDefaults() {
+    std::lock_guard<std::mutex> lk(m_valuesMx);
     for (const auto& def : m_definitions) {
         m_values[def.key] = def.defaultValue;
     }
@@ -75,18 +76,27 @@ void RemoteControlModule::Initialize(HINSTANCE hInst, IHostContext* host) {
 }
 
 void RemoteControlModule::LoadConfig() {
-    m_values = ConfigManager::LoadModuleConfig(
+    auto loaded = ConfigManager::LoadModuleConfig(
         GetConfigFileName(),
         GetConfigSectionName(),
         m_definitions
     );
+    std::lock_guard<std::mutex> lk(m_valuesMx);
+    m_values = std::move(loaded);
 }
 
 void RemoteControlModule::SaveConfig() {
+    // Copy under the lock, then do file I/O on the copy — worker threads
+    // must never wait on a disk write.
+    std::map<std::wstring, std::wstring> snapshot;
+    {
+        std::lock_guard<std::mutex> lk(m_valuesMx);
+        snapshot = m_values;
+    }
     ConfigManager::SaveModuleConfig(
         GetConfigFileName(),
         GetConfigSectionName(),
-        m_values
+        snapshot
     );
 }
 
@@ -102,12 +112,14 @@ void RemoteControlModule::Shutdown() {
 }
 
 std::wstring RemoteControlModule::GetValue(const std::wstring& key) const {
+    std::lock_guard<std::mutex> lk(m_valuesMx);
     auto it = m_values.find(key);
     if (it != m_values.end()) return it->second;
     return L"";
 }
 
 void RemoteControlModule::SetValue(const std::wstring& key, const std::wstring& value) {
+    std::lock_guard<std::mutex> lk(m_valuesMx);
     m_values[key] = value;
 }
 
@@ -116,6 +128,7 @@ void RemoteControlModule::SetValue(const std::wstring& key, const std::wstring& 
 //==============================================================================
 
 bool RemoteControlModule::GetBoolValue(const std::wstring& key, bool defaultValue) const {
+    std::lock_guard<std::mutex> lk(m_valuesMx);
     auto it = m_values.find(key);
     if (it == m_values.end()) return defaultValue;
     return it->second == L"1" || it->second == L"true" || it->second == L"TRUE";
@@ -124,6 +137,7 @@ bool RemoteControlModule::GetBoolValue(const std::wstring& key, bool defaultValu
 std::wstring RemoteControlModule::GetStringValue(
     const std::wstring& key, const std::wstring& defaultVal) const
 {
+    std::lock_guard<std::mutex> lk(m_valuesMx);
     auto it = m_values.find(key);
     if (it == m_values.end()) return defaultVal;
     return it->second;
@@ -309,7 +323,10 @@ void RemoteControlModule::RunAccept() {
         NetworkService::Send(c, hs.data(), static_cast<int>(hs.size()));
 
         UpdateLed();
-        FileTransferService::ResetRecv(m_ftRx);
+        {
+            std::lock_guard<std::mutex> lk(m_ftRxMx);
+            FileTransferService::ResetRecv(m_ftRx);
+        }
     }
 
     // Only the side that wins the swap closes: StopRemoteControl exchanges
@@ -390,6 +407,7 @@ void RemoteControlModule::RunSvRecv() {
         }
 
         if (c != lastC) {
+            std::lock_guard<std::mutex> lk(m_ftRxMx);
             FileTransferService::ResetRecv(m_ftRx);
             lastC = c;
         }
@@ -430,10 +448,15 @@ void RemoteControlModule::RunSvRecv() {
         MultiByteToWideChar(CP_UTF8, 0, savePathA.c_str(), -1,
                             savePathW, MAX_PATH);
 
-        if (FileTransferService::ProcessMsg(
-                pay.data(), static_cast<uint32_t>(pay.size()),
-                m_ftRx, savePathW))
-            continue;
+        {
+            // ProcessMsg writes received file data through m_ftRx; the same
+            // state is reset concurrently by RunAccept and StopRemoteControl.
+            std::lock_guard<std::mutex> lk(m_ftRxMx);
+            if (FileTransferService::ProcessMsg(
+                    pay.data(), static_cast<uint32_t>(pay.size()),
+                    m_ftRx, savePathW))
+                continue;
+        }
 
         if (pay.size() >= 2 && pay[0] == RemoteControl::Proto::CLIP_RESP) {
             RemoteControl::ClipboardPayload clip;
@@ -889,7 +912,10 @@ void RemoteControlModule::StopRemoteControl() {
     DestroyLeds();
 
     FileTransferService::SetProgressHwnd(nullptr);
-    FileTransferService::ResetRecv(m_ftRx);
+    {
+        std::lock_guard<std::mutex> lk(m_ftRxMx);
+        FileTransferService::ResetRecv(m_ftRx);
+    }
 }
 
 //==============================================================================

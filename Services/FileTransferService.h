@@ -48,4 +48,9 @@ bool ProcessMsg(const uint8_t* data, uint32_t len,
 void ResetRecv(ReceiveState& rx);
 void Progress(const char* prefix, uint64_t done, uint64_t total);
 
+// Test observability: how many sender worker threads were actually spawned.
+// StartSvSender/StartClSender spawn at most once each; this count must never
+// grow with repeated Start/Stop cycles.
+int DebugSenderSpawnCount();
+
 }
