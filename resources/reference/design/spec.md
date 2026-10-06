@@ -414,6 +414,22 @@ to kill the app.
 `Logger::Write` / `WriteModuleLog` therefore convert to UTF-8 explicitly and never throw —
 logging must not be able to take down the caller.
 
+### Crash reporting (`main.cpp`)
+
+Crash records bypass `Logger` entirely: they are written with raw `CreateFileW` / `WriteFile`
+(in append mode) so a broken Logger can never mask the failure it is meant to report.
+
+| Hook | Catches | Output |
+|------|---------|--------|
+| `SetUnhandledExceptionFilter(CrashFilter)` | SEH: access violations, stack overflow, divide-by-zero | `Log\Crash.txt` |
+| `std::set_terminate(TerminateHandler)` | Uncaught C++ exceptions (e.g. `std::stoi` on garbage config) | `Log\Crash.txt` |
+| top-level `try/catch` in `wWinMain` | Anything thrown during startup/teardown | `Log\Crash.txt` |
+| `GetMessageW == -1` check in the message loop | Corrupted message queue; the old code ignored the return and looped forever | `Log\Error.txt` |
+
+`Log\Crash.txt` is **UTF-8, append-only, one record per crash** (timestamp + exception code +
+message; CJK paths preserved). When a session ends without a normal exit, read it first —
+see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook.md](crash-silent-exit-playbook.md).
+
 ---
 
 ## 9. Debug System
@@ -455,16 +471,21 @@ logging must not be able to take down the caller.
 
 ### Test infrastructure
 
-- **3 test targets** built via `make test` (not included in `make all`)
+- **6 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
+- New test files under `Debug/` are **not auto-discovered**: add a hardcoded Makefile rule
+  (see AGENTS.md)
 
 | Test | File | Cases |
 |------|------|-------|
 | AutoKeyTest | `Debug/AutoKey/AutoKeyTest.cpp` | 65 — parser, VK names, modifiers, edge cases, INI roundtrip |
 | TooltipTest | `Debug/UI/TooltipTest.cpp` | 17 — Win32 tooltip cbSize, TTF_TRACK, activation ordering, mouse-move triggers |
 | DebugStateTest | `Debug/Core/DebugStateTest.cpp` | 9 — empty manager, module with/without state, direct query |
+| MenuOrderTest | `Debug/Core/MenuOrderTest.cpp` | 13 — menu ordering, unique ids, execute dispatch |
+| ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | 32 — clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
+| DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test

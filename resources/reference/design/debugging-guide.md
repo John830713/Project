@@ -153,4 +153,4 @@ that the AUTOTEST exists on purpose. Check in this order:
   tools work standalone.
 - Release idle test: launch `Project.exe`, wait ~12 s, confirm the process is alive
   and `Log\Main.txt` shows `initialization completed` with no `shutdown completed`.
-- Verify with `mingw32-make test` (5 test executables, 0 = pass).
+- Verify with `mingw32-make test` (6 test executables, 0 = pass).

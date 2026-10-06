@@ -63,7 +63,9 @@ D:\Project/
 │   ├── AutoKey/AutoKeyTest.cpp    65 tests: parser, VK names, INI roundtrip
 │   ├── UI/TooltipTest.cpp         17 tests: tooltip control behavior
 │   ├── Core/DebugStateTest.cpp    9 tests: IDebugStateProvider pattern
+│   ├── Core/MenuOrderTest.cpp     13 tests: menu ordering, unique ids, dispatch
 │   ├── RemoteControl/ClipboardTest.cpp 32 tests: clipboard image/text sync (text+DIB round-trip, wire pack/unpack)
+│   ├── RemoteControl/DisconnectTest.cpp 54 tests: dead-peer timeouts, epoch generations, Stop latency
 │   └── UI/GuiTest.cpp             E2E GUI test (no Makefile target, manual compile)
 │
 ├── Translation/             Generated merged locale (Translation/zh-TW.ini)

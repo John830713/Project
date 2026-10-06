@@ -7,7 +7,7 @@ RemoteControl clipboard sync mechanism tests (no live connection required).
 | File | Role |
 |------|------|
 | `ClipboardTest.cpp` | Verifies clipboard + wire-protocol mechanism used by both roles. Target: `Debug/RemoteControl/ClipboardTest.exe` (links `-lgdi32` for `GetDIBits`). Compiles the real `Modules/RemoteControl/RemoteControlHook.cpp`. |
-| `DisconnectTest.cpp` | Verifies the disconnect/shutdown path over a real loopback socket pair. Target: `Debug/RemoteControl/DisconnectTest.exe` (links `-lws2_32`). Compiles the real `Services/NetworkService.cpp`. |
+| `DisconnectTest.cpp` | Verifies the disconnect/shutdown path over a real loopback socket pair. Target: `Debug/RemoteControl/DisconnectTest.exe` (links `-lws2_32 -lole32 -luuid`). Compiles the real `Services/NetworkService.cpp` + `Services/FileTransferService.cpp`. |
 
 ## Coverage
 
@@ -18,12 +18,19 @@ RemoteControl clipboard sync mechanism tests (no live connection required).
 
 ## DisconnectTest
 
-Guards the master-side hang that made the app unkillable when the client PC was powered off. `RunSend()` held `m_svMx` and called `UpdateLed()` on send failure; `UpdateLed()` locks `m_svMx` again, so the worker self-deadlocked *while owning the mutex* the UI thread needs in `StopRemoteControl()`. Verified by injecting that ordering back into the test — it hangs.
+Target: `Debug/RemoteControl/DisconnectTest.exe` (links `-lws2_32 -lole32 -luuid`).
+Compiles the real `Services/NetworkService.cpp` and `Services/FileTransferService.cpp`.
+54 checks. Guards the master-side hang that made the app unkillable when the client PC was powered off. `RunSend()` held `m_svMx` and called `UpdateLed()` on send failure; `UpdateLed()` locks `m_svMx` again, so the worker self-deadlocked *while owning the mutex* the UI thread needs in `StopRemoteControl()`. Verified by injecting that ordering back into the test — it hangs.
 
 - `ApplyTimeouts` bounds a blocking `send()` on a peer whose receive window never opens (negative control: without it the test hangs).
 - `RecvMsg` returns instead of hanging when the peer dies mid-frame, so the master loop can clear `m_svSocket`.
 - The `RunSend` failure path leaves `m_svMx` acquirable, reproducing a `StopRemoteControl()`-equivalent stop with a bounded `try_lock` poll (`std::mutex` has no `try_lock_for`).
 - `ApplyKeepAlive` applied/rejected as expected.
+- **Port parsing**: `TryParsePort` never throws, rejects trailing junk / overflow, clamps privileged ports to 1024 (a raw `std::stoi` on a hand-edited INI used to `std::terminate` from a worker thread).
+- **Recv-loop reconnect survival**: after a clean `RecvMsg` failure the receiver keeps looping — 20 disconnect/reconnect cycles with a stable `m_epoch` and a live receiver.
+- **Epoch generations**: `m_epoch` bumps (Start/Stop) never revive threads from a previous generation; no lingering connection after bump.
+- **Spawn-once**: 5 Start/Stop cycles spawn exactly 2 file-transfer workers (old code: 10), via `FileTransferService::DebugSenderSpawnCount()`.
+- **Stop latency bound**: when Stop lands mid-send, acquisition of the socket mutex is bounded by `SO_SNDTIMEO` (measured ≈1012 ms for a 1000 ms timeout), not by TCP retransmission. `AbortSends()` was evaluated and rejected — the wait is inside one blocking `send()` that only `closesocket()`/the timeout can interrupt.
 
 ## Referenced by
 
