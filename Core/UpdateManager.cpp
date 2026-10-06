@@ -172,7 +172,7 @@ void ShowNotice(const std::wstring& text, const std::wstring& caption) {
         WNDCLASSEXW wc{sizeof(wc)};
         wc.lpfnWndProc = NoticeWndProc;
         wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hCursor = LoadCursor(nullptr, IDC_ARROW);  // resolves to the ANSI/W version in use
         wc.hbrBackground = GetSysColorBrush(COLOR_WINDOW);
         wc.lpszClassName = kNoticeClass;
         RegisterClassExW(&wc);  // already-registered on later calls is fine
