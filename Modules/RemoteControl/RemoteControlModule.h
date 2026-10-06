@@ -69,6 +69,12 @@ private:
     bool GetBoolValue(const std::wstring& key, bool defaultValue) const;
     std::wstring GetStringValue(const std::wstring& key, const std::wstring& defaultVal) const;
     int GetPortValue(const std::wstring& key, int defaultValue) const;
+    // ResumeState is an internal bookkeeping flag (not part of
+    // m_definitions, so it stays out of the settings UI and SaveConfig):
+    // it is read/written straight in the INI by the start/stop menu
+    // handlers and ApplyConfig. Shutdown() must never clear it.
+    bool ReadResumeState() const;
+    void SaveResumeState(bool active) const;
 
     void RunAccept();
     void RunSend();

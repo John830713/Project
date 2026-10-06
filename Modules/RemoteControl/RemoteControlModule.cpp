@@ -101,9 +101,26 @@ void RemoteControlModule::SaveConfig() {
 }
 
 void RemoteControlModule::ApplyConfig() {
-    if (GetBoolValue(L"AutoStart", false)) {
+    // AutoStart is an explicit user setting; ResumeState records whether
+    // RemoteControl was left running when the previous session ended, so the
+    // next launch (including the one after an in-place update restart)
+    // resumes exactly where it left off.
+    if (GetBoolValue(L"AutoStart", false) || ReadResumeState()) {
         StartRemoteControl();
     }
+}
+
+bool RemoteControlModule::ReadResumeState() const {
+    wchar_t buf[8] = {};
+    GetPrivateProfileStringW(GetConfigSectionName(), L"ResumeState", L"0", buf, 8,
+                             ConfigManager::GetModuleConfigPath(GetConfigFileName()).c_str());
+    return buf[0] == L'1';
+}
+
+void RemoteControlModule::SaveResumeState(bool active) const {
+    WritePrivateProfileStringW(GetConfigSectionName(), L"ResumeState",
+                               active ? L"1" : L"0",
+                               ConfigManager::GetModuleConfigPath(GetConfigFileName()).c_str());
 }
 
 void RemoteControlModule::Shutdown() {
@@ -995,8 +1012,10 @@ std::vector<ContextMenuItem> RemoteControlModule::GetContextMenuItems() const {
 void RemoteControlModule::ExecuteContextMenuItem(int itemId) {
     if (itemId == kMenuStart) {
         StartRemoteControl();
+        SaveResumeState(m_running.load());
     } else if (itemId == kMenuStop) {
         StopRemoteControl();
+        SaveResumeState(m_running.load());
     } else if (itemId == kMenuSelectPath) {
         OpenSavePathDialog();
     }
