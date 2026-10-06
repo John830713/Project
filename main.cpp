@@ -7,6 +7,9 @@
 #include "Core/Logger.h"
 #include "Core/LoaderConfig.h"
 #include "Core/DebugConsole.h"
+#include "Core/UpdateManager.h"
+#include "Services/TranslationService.h"
+#include "Pet/PetConfig.h"
 
 #include <exception>
 #include <cstdio>
@@ -137,6 +140,21 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
 
     ConfigManager::Initialize(hInstance);
     Logger::Initialize(hInstance);
+
+    // Update/single-instance notices must speak the UI language; MainWindow
+    // only loads it later during its own initialization.
+    TranslationService::Get()->Load(PetConfig::Load().language);
+
+    // Single instance + in-place update. Returns false when another copy is
+    // already running: a newer build has been swapped into the registered
+    // path (running instance untouched) or a notice was shown. Either way a
+    // second copy must not start.
+    if (!UpdateManager::BeginSession([](const std::wstring& key) {
+            return TranslationService::Get()->Tr(L"Update", key);
+        })) {
+        return 0;
+    }
+
     LoaderConfig::Data cfg = LoaderConfig::Load();
 
     if (cfg.mode == LoaderConfig::Mode::Clean) {
