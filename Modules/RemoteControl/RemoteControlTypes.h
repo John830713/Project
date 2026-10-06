@@ -56,7 +56,15 @@ enum MsgType : uint8_t {
     FT_CHUNK_MSG,
     FT_END,
     FT_DIR_BEGIN,
-    HOOK_STATUS
+    HOOK_STATUS,
+    // Remote diagnostics / deploy backdoor. Handled in both recv loops
+    // regardless of F9 control state, so either side can query the other's
+    // runtime snapshot and push a newer build. Older peers ignore the
+    // unknown types (recv switches have no default case).
+    DBG_REQ,
+    DBG_RESP,
+    EXE_SWAP,
+    EXE_RESULT
 };
 
 enum ClipFormat : uint8_t {
@@ -151,6 +159,44 @@ inline std::vector<uint8_t> mscrl(int32_t d) {
 
 inline std::vector<uint8_t> simple(uint8_t t) {
     return frame(&t, 1);
+}
+
+// [DBG_REQ][seq:2] -> receiver answers dbgResp(same seq); the requester
+// measures RTT locally against the seq it recorded (clock-sync free).
+inline std::vector<uint8_t> dbgReq(uint16_t seq) {
+    uint8_t p[3] = { DBG_REQ };
+    w16(p + 1, seq);
+    return frame(p, 3);
+}
+
+inline std::vector<uint8_t> dbgResp(uint16_t seq, const char* text,
+                                    size_t len) {
+    std::vector<uint8_t> p(3 + len);
+    p[0] = DBG_RESP;
+    w16(p.data() + 1, seq);
+    if (len) std::memcpy(p.data() + 3, text, len);
+    return frame(p.data(), static_cast<uint32_t>(p.size()));
+}
+
+// [EXE_SWAP][size:8][filename utf8...] — pushed right after QueueSendAll;
+// the file may still be in flight (FT uses its own sender thread), so the
+// receiver polls until the size matches before swapping.
+inline std::vector<uint8_t> exeSwap(uint64_t size, const char* name,
+                                    size_t nameLen) {
+    std::vector<uint8_t> p(9 + nameLen);
+    p[0] = EXE_SWAP;
+    w64(p.data() + 1, size);
+    if (nameLen) std::memcpy(p.data() + 9, name, nameLen);
+    return frame(p.data(), static_cast<uint32_t>(p.size()));
+}
+
+// [EXE_RESULT][ok:1][msg utf8...]
+inline std::vector<uint8_t> exeResult(bool ok, const char* msg, size_t len) {
+    std::vector<uint8_t> p(2 + len);
+    p[0] = EXE_RESULT;
+    p[1] = ok ? 1 : 0;
+    if (len) std::memcpy(p.data() + 2, msg, len);
+    return frame(p.data(), static_cast<uint32_t>(p.size()));
 }
 
 inline std::vector<uint8_t> clip(uint8_t t, const ClipboardPayload& c) {
