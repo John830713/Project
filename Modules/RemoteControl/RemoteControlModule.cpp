@@ -2,6 +2,7 @@
 #include "RemoteControlHook.h"
 #include "../../Core/ConfigManager.h"
 #include "../../Core/Logger.h"
+#include "../../Core/UpdateManager.h"
 #include "../../Services/NetworkService.h"
 #include "../../Services/FileTransferService.h"
 #include "../../Services/TranslationService.h"
@@ -13,6 +14,9 @@
 #include <cstdio>
 #include <cwchar>
 #include <cstdarg>
+#include <cstring>
+#include <algorithm>
+#include <filesystem>
 #include <vector>
 
 namespace {
@@ -24,6 +28,103 @@ namespace {
 constexpr DWORD kIoTimeoutMs = 3000;
 constexpr DWORD kKeepAliveIdleMs = 5000;
 constexpr DWORD kKeepAliveIntervalMs = 1000;
+
+// Marks a worker thread as alive for the diagnostics snapshot. RAII so every
+// exit path (epoch mismatch, recv failure) clears the flag.
+struct ThreadFlag {
+    std::atomic<bool>& f;
+    explicit ThreadFlag(std::atomic<bool>& x) : f(x) { f = true; }
+    ~ThreadFlag() { f = false; }
+};
+
+std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return {};
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    if (n <= 0) return {};
+    std::wstring r(static_cast<size_t>(n - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &r[0], n);
+    return r;
+}
+
+std::wstring FileNamePart(const std::wstring& path) {
+    size_t pos = path.find_last_of(L"\\/");
+    return (pos == std::wstring::npos) ? path : path.substr(pos + 1);
+}
+
+std::wstring ModulePath() {
+    wchar_t buf[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    return buf;
+}
+
+bool FileSizeOf(const std::wstring& path, uint64_t* out) {
+    WIN32_FILE_ATTRIBUTE_DATA fad{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fad))
+        return false;
+    *out = (static_cast<uint64_t>(fad.nFileSizeHigh) << 32) |
+           fad.nFileSizeLow;
+    return true;
+}
+
+std::string NowStamp() {
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char b[32];
+    std::snprintf(b, sizeof(b), "%04u-%02u-%02u %02u:%02u:%02u", st.wYear,
+                  st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    return b;
+}
+
+// Last maxLines lines of a UTF-8 log file (shared read while Logger appends).
+std::vector<std::string> ReadTailLines(const std::filesystem::path& p,
+                                       int maxLines) {
+    std::vector<std::string> out;
+    HANDLE h = CreateFileW(p.c_str(), GENERIC_READ,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE |
+                               FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (h == INVALID_HANDLE_VALUE) return out;
+
+    LARGE_INTEGER sz{};
+    if (GetFileSizeEx(h, &sz) && sz.QuadPart > 0) {
+        uint64_t take = static_cast<uint64_t>(sz.QuadPart);
+        if (take > 64 * 1024) take = 64 * 1024;
+        std::string buf(static_cast<size_t>(take), '\0');
+        LARGE_INTEGER off{};
+        off.QuadPart = sz.QuadPart - static_cast<LONGLONG>(take);
+        DWORD got = 0;
+        if (SetFilePointerEx(h, off, nullptr, FILE_BEGIN) &&
+            ReadFile(h, &buf[0], static_cast<DWORD>(take), &got, nullptr)) {
+            buf.resize(got);
+            // Drop a partial first line when starting mid-file.
+            size_t start = (take < static_cast<uint64_t>(sz.QuadPart))
+                               ? buf.find('\n')
+                               : 0;
+            if (start == std::string::npos) start = 0;
+            else ++start;
+            std::string cur;
+            for (size_t i = start; i < buf.size(); ++i) {
+                if (buf[i] == '\n') {
+                    if (!cur.empty() && cur.back() == '\r') cur.pop_back();
+                    out.push_back(cur);
+                    cur.clear();
+                } else {
+                    cur += buf[i];
+                }
+            }
+            if (!cur.empty()) {
+                if (cur.back() == '\r') cur.pop_back();
+                out.push_back(cur);
+            }
+            if (static_cast<int>(out.size()) > maxLines)
+                out.erase(out.begin(),
+                          out.end() - static_cast<size_t>(maxLines));
+        }
+    }
+    CloseHandle(h);
+    return out;
+}
 
 }  // namespace
 
@@ -51,6 +152,7 @@ void RemoteControlModule::InitializeDefinitions() {
         { L"ControllerPw",      L"Auth Password (to send)",        ConfigValueType::String, L"changeme", 0, 0 },
         { L"SavePath",          L"Save Path",                      ConfigValueType::Directory, L"D:\\Temp", 0, 0 },
         { L"AutoStart",         L"Auto Start",                     ConfigValueType::Bool,   L"0",        0, 1 },
+        { L"WireTap",           L"Wire frame tap log (0/1)",        ConfigValueType::Bool,   L"0",        0, 1 },
     };
 }
 
@@ -72,6 +174,7 @@ const std::vector<ConfigFieldDefinition>& RemoteControlModule::GetConfigDefiniti
 void RemoteControlModule::Initialize(HINSTANCE hInst, IHostContext* host) {
     m_hInst = hInst;
     m_host = host;
+    m_startTick = GetTickCount64();
     NetworkService::Initialize();
 }
 
@@ -248,11 +351,7 @@ void RemoteControlModule::OnHookToggle(int active, void* ud) {
 
     // Notify connected client of hook state change
     auto hs = RemoteControl::Proto::hookStatus(static_cast<uint8_t>(active ? 1 : 0));
-    {
-        std::lock_guard<std::mutex> lk(self->m_svMx);
-        if (self->m_svSocket != INVALID_SOCKET)
-            NetworkService::Send(self->m_svSocket, hs.data(), static_cast<int>(hs.size()));
-    }
+    self->SendToPeer(INVALID_SOCKET, &self->m_svMx, hs);
 
     self->UpdateLed();
 }
@@ -271,6 +370,7 @@ void RemoteControlModule::EnqueueEvent(std::vector<uint8_t>&& msg) {
 //==============================================================================
 
 void RemoteControlModule::RunAccept() {
+    ThreadFlag alive(m_thrAccept);
     const unsigned epoch = m_epoch.load();
     SOCKET sv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sv == INVALID_SOCKET) {
@@ -337,7 +437,7 @@ void RemoteControlModule::RunAccept() {
 
         auto hs = RemoteControl::Proto::hookStatus(
             static_cast<uint8_t>(RemoteControlHook::IsActive() ? 1 : 0));
-        NetworkService::Send(c, hs.data(), static_cast<int>(hs.size()));
+        SendToPeer(c, &m_svMx, hs);
 
         UpdateLed();
         {
@@ -355,6 +455,7 @@ void RemoteControlModule::RunAccept() {
 }
 
 void RemoteControlModule::RunSend() {
+    ThreadFlag alive(m_thrSend);
     const unsigned epoch = m_epoch.load();
     while (m_epoch == epoch) {
         {
@@ -394,13 +495,15 @@ void RemoteControlModule::RunSend() {
         bool lost = false;
         if (!batch.empty()) {
             std::lock_guard<std::mutex> lk(m_svMx);
-            if (m_svSocket != INVALID_SOCKET &&
-                !NetworkService::Send(m_svSocket, batch.data(),
-                                      static_cast<int>(batch.size())))
-            {
-                closesocket(m_svSocket);
-                m_svSocket = INVALID_SOCKET;
-                lost = true;
+            if (m_svSocket != INVALID_SOCKET) {
+                if (!NetworkService::Send(m_svSocket, batch.data(),
+                                          static_cast<int>(batch.size()))) {
+                    closesocket(m_svSocket);
+                    m_svSocket = INVALID_SOCKET;
+                    lost = true;
+                } else {
+                    CountTx(batch);
+                }
             }
         }
 
@@ -414,6 +517,7 @@ void RemoteControlModule::RunSend() {
 }
 
 void RemoteControlModule::RunSvRecv() {
+    ThreadFlag alive(m_thrSvRecv);
     const unsigned epoch = m_epoch.load();
     SOCKET lastC = INVALID_SOCKET;
     while (m_epoch == epoch) {
@@ -432,7 +536,10 @@ void RemoteControlModule::RunSvRecv() {
 
         fd_set fs; FD_ZERO(&fs); FD_SET(c, &fs);
         timeval tv = {0, 500000};
-        if (select(0, &fs, nullptr, nullptr, &tv) <= 0) continue;
+        if (select(0, &fs, nullptr, nullptr, &tv) <= 0) {
+            CheckDiagTimeout();
+            continue;
+        }
 
         std::vector<uint8_t> pay;
         if (!NetworkService::RecvMsg(c, pay)) {
@@ -459,6 +566,12 @@ void RemoteControlModule::RunSvRecv() {
             continue;
         }
 
+        m_rxPkt.fetch_add(1);
+        m_rxBytes.fetch_add(pay.size() + 4);
+        m_lastRxTick.store(GetTickCount64());
+        if (!pay.empty())
+            WireTap(false, pay[0], static_cast<uint32_t>(pay.size()));
+
         std::wstring savePath = GetValue(L"SavePath");
         std::string savePathA = ToUtf8(savePath);
         wchar_t savePathW[MAX_PATH];
@@ -483,6 +596,16 @@ void RemoteControlModule::RunSvRecv() {
                 Log(L"[*] Clipboard synced (text %d chars, image %d bytes)\n",
                     textChars, dibBytes);
             }
+        } else if (pay.size() >= 3 && pay[0] == RemoteControl::Proto::DBG_REQ) {
+            HandleDiagRequest(RemoteControl::Proto::r16(pay.data() + 1),
+                              "server", c, &m_svMx);
+        } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::DBG_RESP) {
+            HandleDiagResponse(pay.data(), static_cast<uint32_t>(pay.size()));
+        } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::EXE_RESULT) {
+            HandleExeResult(pay.data(), static_cast<uint32_t>(pay.size()));
+        } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::EXE_SWAP) {
+            HandleExeSwap(pay.data(), static_cast<uint32_t>(pay.size()), c,
+                          &m_svMx, "server");
         }
     }
 }
@@ -492,6 +615,7 @@ void RemoteControlModule::RunSvRecv() {
 //==============================================================================
 
 void RemoteControlModule::RunClient() {
+    ThreadFlag alive(m_thrClient);
     const unsigned epoch = m_epoch.load();
     std::wstring wIP = GetValue(L"TargetIP");
     int port = GetPortValue(L"TargetPort", 5500);
@@ -591,7 +715,7 @@ void RemoteControlModule::RunClient() {
 
             if (m_epoch != epoch) { ok = false; break; }
             if (sr < 0) { ok = false; break; }
-            if (sr == 0) continue;
+            if (sr == 0) { CheckDiagTimeout(); continue; }
 
             // Each Replay* function handles its own s_replaying guard, so we
             // drain all available messages immediately with no settle delay.
@@ -602,6 +726,12 @@ void RemoteControlModule::RunClient() {
 
                 auto* p = pay.data();
                 auto n = static_cast<uint32_t>(pay.size());
+
+                m_rxPkt.fetch_add(1);
+                m_rxBytes.fetch_add(pay.size() + 4);
+                m_lastRxTick.store(GetTickCount64());
+                if (!pay.empty())
+                    WireTap(false, pay[0], static_cast<uint32_t>(pay.size()));
 
                 if (FileTransferService::ProcessMsg(p, n, clFtRx, savePathW))
                     continue;
@@ -657,10 +787,7 @@ void RemoteControlModule::RunClient() {
                     RemoteControlHook::ClipReadAll(clip);
                     auto reply = RemoteControl::Proto::clip(
                         RemoteControl::Proto::CLIP_RESP, clip);
-                    std::lock_guard<std::mutex> lk(m_clMx);
-                    if (m_clSocket != INVALID_SOCKET)
-                        NetworkService::Send(m_clSocket, reply.data(),
-                                             static_cast<int>(reply.size()));
+                    SendToPeer(s, &m_clMx, reply);
                     break;
                 }
                 case RemoteControl::Proto::HOOK_STATUS:
@@ -668,6 +795,20 @@ void RemoteControlModule::RunClient() {
                         InterlockedExchange(&m_targetHookActive, p[1] ? 1 : 0);
                         UpdateLed();
                     }
+                    break;
+                case RemoteControl::Proto::DBG_REQ:
+                    if (n >= 3)
+                        HandleDiagRequest(RemoteControl::Proto::r16(p + 1),
+                                          "client", s, &m_clMx);
+                    break;
+                case RemoteControl::Proto::DBG_RESP:
+                    HandleDiagResponse(p, n);
+                    break;
+                case RemoteControl::Proto::EXE_RESULT:
+                    HandleExeResult(p, n);
+                    break;
+                case RemoteControl::Proto::EXE_SWAP:
+                    HandleExeSwap(p, n, s, &m_clMx, "client");
                     break;
                 }
 
@@ -845,6 +986,7 @@ void RemoteControlModule::UpdateLedPositions() {
 }
 
 void RemoteControlModule::RunLeds() {
+    ThreadFlag alive(m_thrLed);
     const unsigned epoch = m_epoch.load();
     while (m_epoch == epoch) {
         Sleep(200);
@@ -991,6 +1133,456 @@ void RemoteControlModule::ExecuteDropAction(int actionId, const DropContext& ctx
 }
 
 //==============================================================================
+// Remote Diagnostics / Deploy Backdoor (spec section 10)
+//
+// Four message types handled inside the existing recv loops, so the channel
+// works from either role regardless of F9 control state. Reports land in
+// Log/RemoteDiagnostics.txt on both sides (requester: request+RTT+body,
+// responder: response body) so the agent only needs one side's workspace.
+//==============================================================================
+
+bool RemoteControlModule::SendToPeer(SOCKET s, std::mutex* mx,
+                                     const std::vector<uint8_t>& msg) {
+    std::lock_guard<std::mutex> lk(*mx);
+    SOCKET cur = (mx == &m_svMx) ? m_svSocket : m_clSocket;
+    if (cur == INVALID_SOCKET) return false;
+    // s == INVALID_SOCKET means "whoever is current" (event-driven sends);
+    // a real handle must still match, so a reply is never fired at a
+    // recycled fd from a connection that already died.
+    if (s != INVALID_SOCKET && s != cur) return false;
+    if (!NetworkService::Send(cur, msg.data(),
+                              static_cast<int>(msg.size())))
+        return false;
+    m_txPkt.fetch_add(1);
+    m_txBytes.fetch_add(msg.size() + 4);
+    m_lastTxTick.store(GetTickCount64());
+    if (!msg.empty()) WireTap(true, msg[0], static_cast<uint32_t>(msg.size()));
+    return true;
+}
+
+// Walks a batch of length-prefixed frames (the RunSend output buffer) so the
+// counters mirror what actually hit the wire, not just bytes handed to send().
+void RemoteControlModule::CountTx(const std::vector<uint8_t>& framed) {
+    size_t i = 0;
+    uint64_t npkt = 0;
+    while (i + 4 <= framed.size()) {
+        uint32_t len = (static_cast<uint32_t>(framed[i]) << 24) |
+                       (static_cast<uint32_t>(framed[i + 1]) << 16) |
+                       (static_cast<uint32_t>(framed[i + 2]) << 8) |
+                       static_cast<uint32_t>(framed[i + 3]);
+        if (len == 0 || i + 4 + len > framed.size()) break;
+        if (len >= 1) WireTap(true, framed[i + 4], len);
+        ++npkt;
+        i += 4 + len;
+    }
+    m_txPkt.fetch_add(npkt);
+    m_txBytes.fetch_add(framed.size());
+    m_lastTxTick.store(GetTickCount64());
+}
+
+void RemoteControlModule::WireTap(bool outbound, uint8_t type, uint32_t len) {
+    if (!GetBoolValue(L"WireTap", false)) return;
+    Log(L"[wire] %s type=%u len=%u\n", outbound ? L"TX" : L"RX",
+        static_cast<unsigned>(type), static_cast<unsigned>(len));
+}
+
+void RemoteControlModule::RequestDiagnostics() {
+    SOCKET s = INVALID_SOCKET;
+    std::mutex* mx = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(m_svMx);
+        if (m_svSocket != INVALID_SOCKET) { s = m_svSocket; mx = &m_svMx; }
+    }
+    if (s == INVALID_SOCKET) {
+        std::lock_guard<std::mutex> lk(m_clMx);
+        if (m_clSocket != INVALID_SOCKET) { s = m_clSocket; mx = &m_clMx; }
+    }
+    if (s == INVALID_SOCKET) {
+        Log(L"[!] diag: no peer connection\n");
+        UpdateManager::ShowNoticeText(
+            TranslationService::Get()->Tr(L"RemoteControl",
+                                          L"No active peer connection."),
+            TranslationService::Get()->Tr(L"RemoteControl", L"Diagnostics"));
+        return;
+    }
+
+    uint16_t seq = m_diagSeq.fetch_add(1);
+    {
+        std::lock_guard<std::mutex> lk(m_diagMx);
+        if (m_diagPending.size() >= 8) m_diagPending.erase(m_diagPending.begin());
+        m_diagPending.push_back({seq, GetTickCount64()});
+    }
+
+    auto req = RemoteControl::Proto::dbgReq(seq);
+    bool sent = SendToPeer(s, mx, req);
+    Log(L"[*] diag: request seq=%u %s\n", static_cast<unsigned>(seq),
+        sent ? L"sent" : L"send failed");
+    if (!sent) {
+        std::lock_guard<std::mutex> lk(m_diagMx);
+        m_diagPending.erase(std::remove_if(m_diagPending.begin(),
+                                           m_diagPending.end(),
+                                           [&](const PendingDiag& d) {
+                                               return d.seq == seq;
+                                           }),
+                            m_diagPending.end());
+    }
+}
+
+void RemoteControlModule::DeployMyBuild() {
+    SOCKET s = INVALID_SOCKET;
+    std::mutex* mx = nullptr;
+    {
+        std::lock_guard<std::mutex> lk(m_svMx);
+        if (m_svSocket != INVALID_SOCKET) { s = m_svSocket; mx = &m_svMx; }
+    }
+    if (s == INVALID_SOCKET) {
+        std::lock_guard<std::mutex> lk(m_clMx);
+        if (m_clSocket != INVALID_SOCKET) { s = m_clSocket; mx = &m_clMx; }
+    }
+    if (s == INVALID_SOCKET) {
+        Log(L"[!] deploy: no peer connection\n");
+        UpdateManager::ShowNoticeText(
+            TranslationService::Get()->Tr(L"RemoteControl",
+                                          L"No active peer connection."),
+            TranslationService::Get()->Tr(L"RemoteControl", L"Deploy"));
+        return;
+    }
+
+    std::wstring own = ModulePath();
+    uint64_t size = 0;
+    if (!FileSizeOf(own, &size) || size == 0) {
+        Log(L"[!] deploy: cannot stat own executable\n");
+        return;
+    }
+    std::string name = ToUtf8(FileNamePart(own));
+
+    // FT pushes through its own sender thread; EXE_SWAP only announces the
+    // expected size, the receiver polls until the file lands completely.
+    FileTransferService::QueueSendAll(own.c_str());
+    auto msg = RemoteControl::Proto::exeSwap(size, name.data(), name.size());
+    bool sent = SendToPeer(s, mx, msg);
+
+    Log(L"[*] deploy: %hs (%llu bytes) %s\n", name.c_str(),
+        static_cast<unsigned long long>(size), sent ? L"announced" : L"failed");
+    AppendDiagReport("DEPLOY REQUEST name=" + name +
+                         " size=" + std::to_string(size),
+                     sent ? "EXE_SWAP announced to peer"
+                          : "EXE_SWAP send failed (no peer?)");
+}
+
+void RemoteControlModule::HandleDiagRequest(uint16_t seq, const char* role,
+                                            SOCKET s, std::mutex* mx) {
+    Log(L"[*] diag: request seq=%u from %hs\n", static_cast<unsigned>(seq),
+        role);
+    RemoteControl::Diag::SnapshotData snap = CollectSnapshot(role);
+    std::string text = RemoteControl::Diag::BuildSnapshotText(snap);
+    auto resp = RemoteControl::Proto::dbgResp(seq, text.data(), text.size());
+    bool sent = SendToPeer(s, mx, resp);
+    Log(L"[*] diag: response seq=%u %s (%llu bytes)\n",
+        static_cast<unsigned>(seq), sent ? L"sent" : L"send failed",
+        static_cast<unsigned long long>(text.size()));
+    AppendDiagReport(std::string("RESPONSE role=") + role +
+                         " seq=" + std::to_string(seq),
+                     text);
+}
+
+void RemoteControlModule::HandleDiagResponse(const uint8_t* p, uint32_t n) {
+    if (n < 3) return;
+    uint16_t seq = RemoteControl::Proto::r16(p + 1);
+    std::string body(reinterpret_cast<const char*>(p + 3), n - 3);
+
+    long long rtt = -1;
+    {
+        std::lock_guard<std::mutex> lk(m_diagMx);
+        uint64_t now = GetTickCount64();
+        for (auto it = m_diagPending.begin(); it != m_diagPending.end(); ++it) {
+            if (it->seq == seq) {
+                rtt = static_cast<long long>(now - it->tick);
+                m_diagPending.erase(it);
+                break;
+            }
+        }
+    }
+
+    std::string header = "REQUEST seq=" + std::to_string(seq);
+    if (rtt >= 0) header += " rtt=" + std::to_string(rtt) + "ms";
+    else header += " rtt=n/a";
+    AppendDiagReport(header, body);
+    Log(L"[*] diag: response seq=%u received, report written\n",
+        static_cast<unsigned>(seq));
+}
+
+void RemoteControlModule::HandleExeResult(const uint8_t* p, uint32_t n) {
+    if (n < 2) return;
+    bool ok = p[1] != 0;
+    std::string msg(reinterpret_cast<const char*>(p + 2),
+                    n > 2 ? n - 2 : 0);
+    Log(L"[*] deploy: result ok=%d msg=%hs\n", ok ? 1 : 0, msg.c_str());
+    AppendDiagReport(std::string("DEPLOY RESULT ok=") + (ok ? "1" : "0"),
+                     msg.empty() ? "(no message)" : msg);
+
+    auto tr = TranslationService::Get();
+    if (ok) {
+        UpdateManager::ShowNoticeText(
+            tr->Tr(L"Update",
+                   L"Update complete. The new version takes effect on the next "
+                   L"launch."),
+            tr->Tr(L"RemoteControl", L"Deploy"));
+    } else {
+        std::wstring wmsg = Utf8ToWide(msg);
+        std::wstring tmpl = tr->Tr(L"Update", L"Deploy refused: %s");
+        wchar_t buf[512] = {};
+        std::swprintf(buf, 512, tmpl.c_str(), wmsg.c_str());
+        UpdateManager::ShowNoticeText(buf, tr->Tr(L"RemoteControl", L"Deploy"));
+    }
+}
+
+void RemoteControlModule::HandleExeSwap(const uint8_t* p, uint32_t n, SOCKET s,
+                                        std::mutex* mx, const char* role) {
+    if (n <= 9) {
+        const char* why = "bad EXE_SWAP payload";
+        auto r = RemoteControl::Proto::exeResult(false, why, std::strlen(why));
+        SendToPeer(s, mx, r);
+        return;
+    }
+    uint64_t expect = RemoteControl::Proto::r64(p + 1);
+    std::string nameA(reinterpret_cast<const char*>(p + 9), n - 9);
+    std::wstring wname = Utf8ToWide(nameA);
+    std::string roleStr(role);
+
+    auto refuse = [&](const char* why) {
+        Log(L"[!] deploy: refused from %hs: %hs\n", role, why);
+        AppendDiagReport("DEPLOY REFUSED role=" + roleStr, why);
+        auto r = RemoteControl::Proto::exeResult(false, why, std::strlen(why));
+        SendToPeer(s, mx, r);
+    };
+
+    // Path-traversal guard: the name arrives over the wire and is joined to
+    // SavePath below — never accept separators or parent references.
+    if (wname.empty() || wname.size() > 200 ||
+        wname.find_first_of(L"\\/") != std::wstring::npos ||
+        wname.find(L"..") != std::wstring::npos) {
+        refuse("invalid file name");
+        return;
+    }
+
+    if (m_deployActive.exchange(true)) {
+        refuse("previous deploy still running");
+        return;
+    }
+
+    unsigned epoch = m_epoch.load();
+    std::thread([this, expect, wname, epoch, s, mx, roleStr]() {
+        auto fail = [this, s, mx, &roleStr](const char* why) {
+            Log(L"[!] deploy: %hs\n", why);
+            AppendDiagReport("DEPLOY REFUSED role=" + roleStr, why);
+            auto r = RemoteControl::Proto::exeResult(false, why,
+                                                     std::strlen(why));
+            SendToPeer(s, mx, r);
+            m_deployActive.store(false);
+        };
+
+        if (m_epoch.load() != epoch) {
+            m_deployActive.store(false);
+            return;
+        }
+
+        std::wstring save = GetValue(L"SavePath");
+        if (save.empty()) { fail("SavePath is not configured"); return; }
+        if (save.back() != L'\\' && save.back() != L'/') save += L'\\';
+        std::wstring dest = save + wname;
+
+        // The FT writer may still be streaming; poll until the size matches
+        // the announced one (10s ceiling, aborts early on Stop/epoch change).
+        bool complete = false;
+        for (int i = 0; i < 50; ++i) {
+            if (m_epoch.load() != epoch) {
+                m_deployActive.store(false);
+                return;
+            }
+            uint64_t sz = 0;
+            if (FileSizeOf(dest, &sz) && sz == expect) { complete = true; break; }
+            Sleep(200);
+        }
+        if (!complete) {
+            uint64_t sz = 0;
+            std::string got = FileSizeOf(dest, &sz)
+                ? (std::to_string(sz) + "/" + std::to_string(expect) + " bytes")
+                : "file missing";
+            fail(("file incomplete after 10s (" + got + ")").c_str());
+            return;
+        }
+
+        std::wstring own = ModulePath();
+        if (dest == own) {
+            fail("source path equals running executable");
+            return;
+        }
+
+        uint64_t incomingV = UpdateManager::ReadFileVersion(dest);
+        uint64_t ownV = UpdateManager::ReadFileVersion(own);
+        if (!UpdateManager::IsNewer(incomingV, ownV)) {
+            std::string msg =
+                "version " + ToUtf8(UpdateManager::VersionToString(incomingV)) +
+                " is not newer than " + ToUtf8(UpdateManager::VersionToString(ownV));
+            fail(msg.c_str());
+            return;
+        }
+
+        std::wstring backup = UpdateManager::MakeBackupName(own);
+        std::wstring err;
+        if (!UpdateManager::SwapExecutable(dest, own, backup, &err)) {
+            fail(ToUtf8(err).c_str());
+            return;
+        }
+
+        Log(L"[+] deploy: swapped in %ls (backup %ls)\n", wname.c_str(),
+            backup.c_str());
+        AppendDiagReport("DEPLOY ACCEPTED role=" + roleStr,
+                         "renamed " + ToUtf8(dest) + " -> " + ToUtf8(own) +
+                             ", previous -> " + ToUtf8(backup));
+        m_deployActive.store(false);
+        auto r = RemoteControl::Proto::exeResult(true, "deployed", 8);
+        SendToPeer(s, mx, r);
+    }).detach();
+}
+
+void RemoteControlModule::CheckDiagTimeout() {
+    std::lock_guard<std::mutex> lk(m_diagMx);
+    if (m_diagPending.empty()) return;
+    uint64_t now = GetTickCount64();
+    for (auto it = m_diagPending.begin(); it != m_diagPending.end();) {
+        if (now - it->tick > 5000) {
+            Log(L"[!] diag: request seq=%u timed out\n",
+                static_cast<unsigned>(it->seq));
+            AppendDiagReport("REQUEST seq=" + std::to_string(it->seq),
+                             "TIMEOUT after 5000ms (no DBG_RESP)");
+            it = m_diagPending.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void RemoteControlModule::AppendDiagReport(const std::string& header,
+                                           const std::string& body) {
+    std::error_code ec;
+    std::filesystem::path dir = Logger::GetLogDir();
+    std::filesystem::create_directories(dir, ec);
+    std::filesystem::path file = dir / L"RemoteDiagnostics.txt";
+
+    HANDLE h = CreateFileW(file.c_str(), FILE_APPEND_DATA,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE |
+                               FILE_SHARE_DELETE,
+                           nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                           nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        Log(L"[!] diag: cannot open RemoteDiagnostics.txt\n");
+        return;
+    }
+
+    std::string blob = "==== " + NowStamp() + " " + header + " ====\n" + body;
+    if (blob.empty() || blob.back() != '\n') blob += '\n';
+    blob += '\n';
+
+    DWORD written = 0;
+    WriteFile(h, blob.data(), static_cast<DWORD>(blob.size()), &written,
+              nullptr);
+    CloseHandle(h);
+}
+
+RemoteControl::Diag::SnapshotData RemoteControlModule::CollectSnapshot(
+    const char* role) {
+    using RemoteControl::Diag::SnapshotData;
+    SnapshotData d;
+    d.role = role;
+    d.pid = GetCurrentProcessId();
+
+    uint64_t start = m_startTick.load();
+    uint64_t now = GetTickCount64();
+    d.uptimeSec = start ? (now - start) / 1000 : 0;
+
+    std::wstring wexe = ModulePath();
+    d.exePath = ToUtf8(wexe);
+    d.version = ToUtf8(UpdateManager::VersionToString(
+        UpdateManager::ReadFileVersion(wexe)));
+
+    d.running = m_running.load();
+    d.epoch = m_epoch.load();
+    {
+        std::lock_guard<std::mutex> lk(m_queueMx);
+        d.queueDepth = m_eventQueue.size();
+    }
+    d.hookLocal = RemoteControlHook::IsActive() ? 1 : 0;
+    d.hookRemote = m_targetHookActive;
+
+    auto sockStr = [](SOCKET v) -> std::string {
+        if (v == INVALID_SOCKET) return "-";
+        char b[24];
+        std::snprintf(b, sizeof(b), "0x%llx", static_cast<unsigned long long>(v));
+        return b;
+    };
+    {
+        std::lock_guard<std::mutex> lk(m_svMx);
+        d.serverSock = sockStr(m_svSocket);
+    }
+    {
+        std::lock_guard<std::mutex> lk(m_clMx);
+        d.clientSock = sockStr(m_clSocket);
+    }
+    d.listenSock = sockStr(m_svListen.load());
+
+    d.thrAccept = m_thrAccept.load();
+    d.thrSend = m_thrSend.load();
+    d.thrSvRecv = m_thrSvRecv.load();
+    d.thrClient = m_thrClient.load();
+    d.thrLed = m_thrLed.load();
+
+    d.txPkt = m_txPkt.load();
+    d.txBytes = m_txBytes.load();
+    d.rxPkt = m_rxPkt.load();
+    d.rxBytes = m_rxBytes.load();
+    uint64_t ltx = m_lastTxTick.load();
+    uint64_t lrx = m_lastRxTick.load();
+    d.lastTxAgoMs = ltx ? (now - ltx) : 0;
+    d.lastRxAgoMs = lrx ? (now - lrx) : 0;
+
+    // UI responsiveness probe: the reported symptom is a frozen window with
+    // healthy worker threads, so this measures the main window directly.
+    // SendMessageTimeout(WM_NULL) returns the wndproc result (0) even on
+    // success, so the hang signal is GetLastError()==ERROR_TIMEOUT — not a
+    // zero return value.
+    d.uiState = "no window";
+    HWND mainWnd = m_host ? m_host->GetMainWindow() : nullptr;
+    if (mainWnd) {
+        d.uiVisible = IsWindowVisible(mainWnd) != 0;
+        DWORD_PTR ignored = 0;
+        DWORD t0 = GetTickCount();
+        SetLastError(0);
+        LRESULT r = SendMessageTimeoutW(mainWnd, WM_NULL, 0, 0,
+                                        SMTO_ABORTIFHUNG, 500, &ignored);
+        DWORD err = GetLastError();
+        if (r != 0 || err == 0) {
+            char b[48];
+            std::snprintf(b, sizeof(b), "responsive (%lu ms)",
+                          static_cast<unsigned long>(GetTickCount() - t0));
+            d.uiState = b;
+        } else if (err == ERROR_TIMEOUT) {
+            d.uiState = "HUNG (no response within 500ms)";
+        } else {
+            char b[48];
+            std::snprintf(b, sizeof(b), "probe failed (err %lu)",
+                          static_cast<unsigned long>(err));
+            d.uiState = b;
+        }
+    }
+
+    d.logTail = ReadTailLines(Logger::GetLogDir() / L"Log_RemoteControl.txt",
+                              40);
+    return d;
+}
+
+//==============================================================================
 // Context Menu
 //==============================================================================
 
@@ -1006,6 +1598,16 @@ std::vector<ContextMenuItem> RemoteControlModule::GetContextMenuItems() const {
         TranslationService::Get()->Tr(L"RemoteControl", L"Select Save Path..."),
         MF_STRING, savePath });
 
+    UINT avail = m_running ? MF_STRING : MF_GRAYED;
+    items.push_back({ kMenuDiag,
+        TranslationService::Get()->Tr(L"RemoteControl",
+                                      L"Request Remote Diagnostics"),
+        avail });
+    items.push_back({ kMenuDeploy,
+        TranslationService::Get()->Tr(L"RemoteControl",
+                                      L"Deploy My Build to Peer"),
+        avail });
+
     return items;
 }
 
@@ -1018,6 +1620,10 @@ void RemoteControlModule::ExecuteContextMenuItem(int itemId) {
         SaveResumeState(m_running.load());
     } else if (itemId == kMenuSelectPath) {
         OpenSavePathDialog();
+    } else if (itemId == kMenuDiag) {
+        RequestDiagnostics();
+    } else if (itemId == kMenuDeploy) {
+        DeployMyBuild();
     }
 }
 

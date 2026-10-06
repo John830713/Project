@@ -210,6 +210,10 @@ void ShowNotice(const std::wstring& text, const std::wstring& caption) {
 // Public helpers (unit-tested)
 //==============================================================================
 
+void ShowNoticeText(const std::wstring& text, const std::wstring& caption) {
+    ShowNotice(text, caption);
+}
+
 std::uint64_t ReadFileVersion(const std::wstring& path) {
     DWORD handle = 0;
     DWORD size = GetFileVersionInfoSizeW(path.c_str(), &handle);

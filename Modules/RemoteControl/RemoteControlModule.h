@@ -14,6 +14,7 @@
 #include "../../Core/ConfigTypes.h"
 #include "../../Services/FileTransferService.h"
 #include "RemoteControlTypes.h"
+#include "RemoteControlDiagnostics.h"
 
 #include <map>
 #include <vector>
@@ -89,6 +90,24 @@ private:
     void Log(const wchar_t* fmt, ...) const;
     std::string ToUtf8(const std::wstring& ws) const;
 
+    // --- Remote diagnostics / deploy backdoor (spec section 10) ---
+    // Handled inside both recv loops so the channel works in either
+    // direction regardless of F9 control state.
+    bool SendToPeer(SOCKET s, std::mutex* mx, const std::vector<uint8_t>& msg);
+    void CountTx(const std::vector<uint8_t>& framed);
+    void WireTap(bool outbound, uint8_t type, uint32_t len);
+    void RequestDiagnostics();
+    void DeployMyBuild();
+    void HandleDiagRequest(uint16_t seq, const char* role, SOCKET s,
+                           std::mutex* mx);
+    void HandleDiagResponse(const uint8_t* p, uint32_t n);
+    void HandleExeResult(const uint8_t* p, uint32_t n);
+    void HandleExeSwap(const uint8_t* p, uint32_t n, SOCKET s, std::mutex* mx,
+                       const char* role);
+    void CheckDiagTimeout();
+    void AppendDiagReport(const std::string& header, const std::string& body);
+    RemoteControl::Diag::SnapshotData CollectSnapshot(const char* role);
+
     static LRESULT CALLBACK LedWndProc(HWND h, UINT m, WPARAM w, LPARAM l);
     void CreateLeds();
     void DestroyLeds();
@@ -96,7 +115,8 @@ private:
     void SetLedColor(COLORREF color);
     void UpdateLedPositions();
 
-    enum { kActionStart = 1, kActionStop, kMenuStart = 200, kMenuStop = 201, kMenuSelectPath = 202 };
+    enum { kActionStart = 1, kActionStop, kMenuStart = 200, kMenuStop = 201,
+           kMenuSelectPath = 202, kMenuDiag = 203, kMenuDeploy = 204 };
 
     HINSTANCE m_hInst = nullptr;
     IHostContext* m_host = nullptr;
@@ -126,6 +146,27 @@ private:
     std::thread m_sendThread;
     std::thread m_svRecvThread;
     std::thread m_clientThread;
+
+    // --- Remote diagnostics / deploy backdoor ---
+    // All main workers are detached (epoch-guarded); the counters below are
+    // read by CollectSnapshot on a recv thread and written by the send/recv
+    // paths, so every access is atomic.
+    std::atomic<uint16_t> m_diagSeq{1};
+    struct PendingDiag { uint16_t seq; uint64_t tick; };
+    std::mutex m_diagMx;                       // guards m_diagPending
+    std::vector<PendingDiag> m_diagPending;    // capped, requester side only
+    std::atomic<bool> m_deployActive{false};   // one EXE_SWAP worker at a time
+    std::atomic<uint64_t> m_startTick{0};      // uptime base (Initialize)
+    std::atomic<uint64_t> m_txPkt{0}, m_txBytes{0};
+    std::atomic<uint64_t> m_rxPkt{0}, m_rxBytes{0};
+    std::atomic<uint64_t> m_lastTxTick{0}, m_lastRxTick{0};
+    // Worker liveness mirrors for the snapshot (set/cleared by RAII in the
+    // thread entry points).
+    std::atomic<bool> m_thrAccept{false};
+    std::atomic<bool> m_thrSend{false};
+    std::atomic<bool> m_thrSvRecv{false};
+    std::atomic<bool> m_thrClient{false};
+    std::atomic<bool> m_thrLed{false};
 
     std::queue<std::vector<uint8_t>> m_eventQueue;
     std::mutex m_queueMx;

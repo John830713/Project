@@ -63,4 +63,10 @@ int RemoveStaleBackups(const std::wstring& modulePath);
 //   second copy.
 bool BeginSession(const NoticeTranslator& tr);
 
+// Shows an auto-closing (2s) topmost notice window with `text` under the
+// given caption. Blocks the calling thread in its own message loop — safe
+// from any thread (used by RemoteControl's deploy channel on recv threads),
+// but the caller is paused for the notice duration.
+void ShowNoticeText(const std::wstring& text, const std::wstring& caption);
+
 }  // namespace UpdateManager
