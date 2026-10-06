@@ -42,6 +42,10 @@ ifndef GENERATED_ICON_OBJ
 GENERATED_ICON_OBJ =
 endif
 
+ifndef GENERATED_VERSION_OBJ
+GENERATED_VERSION_OBJ =
+endif
+
 ifndef LIBS_EXTRA
 LIBS_EXTRA =
 endif
@@ -49,6 +53,9 @@ endif
 ALL_OBJS = $(CPP_OBJS) $(RC_OBJS)
 ifneq ($(strip $(GENERATED_ICON_OBJ)),)
 ALL_OBJS += $(GENERATED_ICON_OBJ)
+endif
+ifneq ($(strip $(GENERATED_VERSION_OBJ)),)
+ALL_OBJS += $(GENERATED_VERSION_OBJ)
 endif
 
 TRANSLATION_OUT = Translation/zh-TW.ini
@@ -126,6 +133,8 @@ distclean: clean
 	-@del /f "GeneratedIcon.ico" 2>nul
 	-@del /f "GeneratedIcon.rc" 2>nul
 	-@del /f "GeneratedIcon.o" 2>nul
+	-@del /f "GeneratedVersion.rc" 2>nul
+	-@del /f "GeneratedVersion.o" 2>nul
 	-@del /f "Translation\zh-TW.ini" 2>nul
 	-@del /f "Build.log" 2>nul
 
