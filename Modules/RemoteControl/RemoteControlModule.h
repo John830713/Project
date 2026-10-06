@@ -120,7 +120,6 @@ private:
     std::thread m_sendThread;
     std::thread m_svRecvThread;
     std::thread m_clientThread;
-    std::thread m_ledThread;
 
     std::queue<std::vector<uint8_t>> m_eventQueue;
     std::mutex m_queueMx;
@@ -136,6 +135,11 @@ private:
     std::mutex m_ftRxMx;
     FileTransferService::ReceiveState m_ftRx;
 
+    // LED window handle, its mover thread, and every accessor are guarded by
+    // m_ledMx. The thread is joinable (joined by DestroyLeds) so it can never
+    // touch the HWND while the UI thread destroys it.
+    mutable std::mutex m_ledMx;
+    std::thread m_ledThread;
     HWND m_led = nullptr;
 
     // For the single LED: track whether the remote controller has active hook

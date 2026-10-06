@@ -554,6 +554,81 @@ void TestSenderSpawnedOnlyOnce() {
     Check(true, "repeated SetProgressHwnd(nullptr) does not crash");
 }
 
+// -----------------------------------------------------------------------------
+// 9. StopRemoteControl must be BOUNDED when it lands while a file chunk is
+//    mid-send: the UI thread needs m_svMx to close the socket, and the sender
+//    holds it until send() gives up. SO_SNDTIMEO is what makes that finite —
+//    without it the wait is unbounded (minutes of TCP retransmission, or
+//    forever with a stalled peer). AbortSends() would not help: the wait is
+//    inside a single blocking send() syscall that only closing the socket or
+//    the timeout can interrupt, and closing the socket is exactly what needs
+//    the lock.
+// -----------------------------------------------------------------------------
+void TestStopBoundedBySendTimeout() {
+    std::printf("\n-- Stop-style acquisition bounded by SO_SNDTIMEO --\n");
+
+    SOCKET tx = INVALID_SOCKET, rx = INVALID_SOCKET;
+    if (!MakeLoopbackPair(tx, rx)) {
+        std::printf("  [SKIP] loopback socket pair unavailable\n");
+        return;
+    }
+
+    const DWORD kTimeout = 1000;  // scaled-down kIoTimeoutMs for test speed
+    NetworkService::ApplyTimeouts(tx, kTimeout);
+
+    int bufSize = 2048;
+    setsockopt(tx, SOL_SOCKET, SO_SNDBUF,
+               reinterpret_cast<char*>(&bufSize), sizeof(bufSize));
+    setsockopt(rx, SOL_SOCKET, SO_RCVBUF,
+               reinterpret_cast<char*>(&bufSize), sizeof(bufSize));
+
+    SOCKET sock = tx;
+    std::mutex sockMx;
+    std::atomic<bool> inSend{false};
+    std::atomic<bool> sendFailed{false};
+
+    std::thread sender([&] {
+        std::vector<uint8_t> block(64 * 1024, 0xEF);
+        std::lock_guard<std::mutex> lk(sockMx);
+        inSend.store(true);
+        // Peer never drains. One 64 KB send can be absorbed by kernel
+        // buffering, so keep going until the window closes and SO_SNDTIMEO
+        // fires — all while holding sockMx, exactly like lockedSend does for
+        // a large file.
+        for (int i = 0; i < 128; ++i) {
+            if (!NetworkService::Send(sock, block.data(),
+                                      static_cast<int>(block.size()))) {
+                sendFailed.store(true);
+                break;
+            }
+        }
+    });
+
+    while (!inSend.load()) Sleep(5);
+
+    // StopRemoteControl-style: poll try_lock while the sender owns the mutex.
+    auto t0 = std::chrono::steady_clock::now();
+    bool acquired = false;
+    while (std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(5000)) {
+        if (sockMx.try_lock()) { acquired = true; sockMx.unlock(); break; }
+        Sleep(10);
+    }
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    Check(acquired, "Stop-style wait eventually acquires the socket mutex");
+    Check(elapsed < static_cast<long long>(kTimeout) + 1500,
+          "wait bounded by SO_SNDTIMEO (+ margin), not TCP retransmission");
+    std::printf("       (elapsed %lld ms for a %lu ms send timeout)\n",
+                static_cast<long long>(elapsed), static_cast<unsigned long>(kTimeout));
+
+    sender.join();
+    Check(sendFailed.load(),
+          "sender's blocking send gave up via SO_SNDTIMEO while holding the lock");
+    closesocket(sock);
+    closesocket(rx);
+}
+
 }  // namespace
 
 int main() {
@@ -574,6 +649,7 @@ int main() {
     TestRecvLoopSurvivesDisconnect();
     TestEpochBumpDoesNotReviveOldThreads();
     TestSenderSpawnedOnlyOnce();
+    TestStopBoundedBySendTimeout();
 
     NetworkService::Cleanup();
 

@@ -523,6 +523,21 @@ void RemoteControlModule::RunClient() {
             retryWait(); continue;
         }
 
+        // A failed non-blocking connect() also marks the socket writable, so
+        // select() alone reports success. Read SO_ERROR to tell refused/
+        // unreachable hosts apart from a real connection.
+        int soErr = 0;
+        int soLen = sizeof(soErr);
+        if (getsockopt(s, SOL_SOCKET, SO_ERROR,
+                       reinterpret_cast<char*>(&soErr), &soLen) != 0 ||
+            soErr != 0)
+        {
+            Log(L"[!] connect to %ls:%d failed (err %d)\n", wIP.c_str(), port,
+                soErr);
+            closesocket(s);
+            retryWait(); continue;
+        }
+
         nb = 0;
         ioctlsocket(s, FIONBIO, &nb);
 
@@ -693,7 +708,10 @@ LRESULT CALLBACK RemoteControlModule::LedWndProc(HWND h, UINT m, WPARAM w, LPARA
 }
 
 void RemoteControlModule::CreateLeds() {
-    if (m_led) return;
+    {
+        std::lock_guard<std::mutex> lk(m_ledMx);
+        if (m_led) return;
+    }
 
     const wchar_t kClass[] = L"RCLedClass";
     static bool reg = false;
@@ -708,28 +726,40 @@ void RemoteControlModule::CreateLeds() {
         reg = true;
     }
 
-    m_led = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
-        kClass, L"RC Status", WS_POPUP,
-        0, 0, 20, 20, nullptr, nullptr, m_hInst, nullptr);
+    {
+        std::lock_guard<std::mutex> lk(m_ledMx);
+        m_led = CreateWindowExW(
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+            kClass, L"RC Status", WS_POPUP,
+            0, 0, 20, 20, nullptr, nullptr, m_hInst, nullptr);
 
-    if (m_led) {
-        SetLayeredWindowAttributes(m_led, 0, 200, LWA_ALPHA);
-        SetWindowLongPtrW(m_led, GWLP_USERDATA, static_cast<LONG_PTR>(RGB(160, 160, 160)));
-        ShowWindow(m_led, SW_SHOWNOACTIVATE);
+        if (m_led) {
+            SetLayeredWindowAttributes(m_led, 0, 200, LWA_ALPHA);
+            SetWindowLongPtrW(m_led, GWLP_USERDATA, static_cast<LONG_PTR>(RGB(160, 160, 160)));
+            ShowWindow(m_led, SW_SHOWNOACTIVATE);
+        }
     }
 
     UpdateLedPositions();
 
+    // Joinable, not detached: StopRemoteControl bumps the epoch first, so
+    // DestroyLeds() can join here instead of leaving a thread racing the
+    // window's destruction. CreateLeds only runs after an epoch bump, which
+    // means any previous LED thread has already been joined by DestroyLeds.
+    if (m_ledThread.joinable()) m_ledThread.join();
     m_ledThread = std::thread(&RemoteControlModule::RunLeds, this);
-    m_ledThread.detach();
 }
 
 void RemoteControlModule::DestroyLeds() {
+    // Join OUTSIDE the lock: RunLeds takes m_ledMx in UpdateLedPositions, so
+    // holding it across the join would deadlock against the worker.
+    if (m_ledThread.joinable()) m_ledThread.join();
+    std::lock_guard<std::mutex> lk(m_ledMx);
     if (m_led) { DestroyWindow(m_led); m_led = nullptr; }
 }
 
 void RemoteControlModule::SetLedColor(COLORREF color) {
+    std::lock_guard<std::mutex> lk(m_ledMx);
     if (!m_led) return;
     SetWindowLongPtrW(m_led, GWLP_USERDATA, static_cast<LONG_PTR>(color));
     InvalidateRect(m_led, nullptr, TRUE);
@@ -770,6 +800,7 @@ void RemoteControlModule::UpdateLed() {
 }
 
 void RemoteControlModule::UpdateLedPositions() {
+    std::lock_guard<std::mutex> lk(m_ledMx);
     if (!m_led) return;
     HWND petHwnd = m_host->GetMainWindow();
     if (!petHwnd) return;
@@ -809,11 +840,13 @@ void RemoteControlModule::RunLeds() {
 //==============================================================================
 
 COLORREF RemoteControlModule::GetLedColor() const {
+    std::lock_guard<std::mutex> lk(m_ledMx);
     if (!m_led) return 0;
     return static_cast<COLORREF>(GetWindowLongPtrW(m_led, GWLP_USERDATA));
 }
 
 void RemoteControlModule::ShowLed(bool visible) {
+    std::lock_guard<std::mutex> lk(m_ledMx);
     if (m_led) ShowWindow(m_led, visible ? SW_SHOWNOACTIVATE : SW_HIDE);
 }
 
