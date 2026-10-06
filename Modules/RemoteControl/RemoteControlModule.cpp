@@ -1156,7 +1156,7 @@ bool RemoteControlModule::SendToPeer(SOCKET s, std::mutex* mx,
     m_txPkt.fetch_add(1);
     m_txBytes.fetch_add(msg.size() + 4);
     m_lastTxTick.store(GetTickCount64());
-    if (!msg.empty()) WireTap(true, msg[0], static_cast<uint32_t>(msg.size()));
+    if (msg.size() >= 5) WireTap(true, msg[4], static_cast<uint32_t>(msg.size() - 4));
     return true;
 }
 
@@ -1182,7 +1182,7 @@ void RemoteControlModule::CountTx(const std::vector<uint8_t>& framed) {
 
 void RemoteControlModule::WireTap(bool outbound, uint8_t type, uint32_t len) {
     if (!GetBoolValue(L"WireTap", false)) return;
-    Log(L"[wire] %s type=%u len=%u\n", outbound ? L"TX" : L"RX",
+    Log(L"[wire] %hs type=%u len=%u\n", outbound ? "TX" : "RX",
         static_cast<unsigned>(type), static_cast<unsigned>(len));
 }
 
@@ -1256,11 +1256,16 @@ void RemoteControlModule::DeployMyBuild() {
     }
     std::string name = ToUtf8(FileNamePart(own));
 
-    // FT pushes through its own sender thread; EXE_SWAP only announces the
-    // expected size, the receiver polls until the file lands completely.
-    FileTransferService::QueueSendAll(own.c_str());
+    // Announce BEFORE queueing the file: the receiver snapshots the target's
+    // old mtime when the EXE_SWAP lands, so its size poll can tell the stale
+    // leftover from the incoming file even when the sizes are identical.
     auto msg = RemoteControl::Proto::exeSwap(size, name.data(), name.size());
     bool sent = SendToPeer(s, mx, msg);
+    if (sent) {
+        // FT pushes through its own sender thread; the receiver polls until
+        // the file lands completely.
+        FileTransferService::QueueSendAll(own.c_str());
+    }
 
     Log(L"[*] deploy: %hs (%llu bytes) %s\n", name.c_str(),
         static_cast<unsigned long long>(size), sent ? L"announced" : L"failed");
@@ -1394,6 +1399,11 @@ void RemoteControlModule::HandleExeSwap(const uint8_t* p, uint32_t n, SOCKET s,
 
         // The FT writer may still be streaming; poll until the size matches
         // the announced one (10s ceiling, aborts early on Stop/epoch change).
+        // A leftover from a previous deploy can already sit at the target with
+        // the same size, so a fresh write must be proven by an mtime newer
+        // than the pre-announcement snapshot.
+        std::error_code sec;
+        auto stale = std::filesystem::last_write_time(dest, sec);
         bool complete = false;
         for (int i = 0; i < 50; ++i) {
             if (m_epoch.load() != epoch) {
@@ -1401,7 +1411,10 @@ void RemoteControlModule::HandleExeSwap(const uint8_t* p, uint32_t n, SOCKET s,
                 return;
             }
             uint64_t sz = 0;
-            if (FileSizeOf(dest, &sz) && sz == expect) { complete = true; break; }
+            std::error_code mec;
+            auto wt = std::filesystem::last_write_time(dest, mec);
+            if (FileSizeOf(dest, &sz) && sz == expect && mec == std::error_code{})
+                if (wt > stale) { complete = true; break; }
             Sleep(200);
         }
         if (!complete) {
@@ -1420,6 +1433,17 @@ void RemoteControlModule::HandleExeSwap(const uint8_t* p, uint32_t n, SOCKET s,
         }
 
         uint64_t incomingV = UpdateManager::ReadFileVersion(dest);
+        // The FT writer streams in place; the size can match while the final
+        // bytes are still being flushed, so re-read the version until it
+        // parses (0.0.0.0 means the resource was mid-write garbage).
+        for (int i = 0; i < 25 && incomingV == 0; ++i) {
+            if (m_epoch.load() != epoch) {
+                m_deployActive.store(false);
+                return;
+            }
+            Sleep(200);
+            incomingV = UpdateManager::ReadFileVersion(dest);
+        }
         uint64_t ownV = UpdateManager::ReadFileVersion(own);
         if (!UpdateManager::IsNewer(incomingV, ownV)) {
             std::string msg =
