@@ -122,6 +122,10 @@ Note: `RunSend` and `RunSvRecv` may both decide the connection is lost; each cle
 
 `RemoteControlHook` installs `WH_KEYBOARD_LL`/`WH_MOUSE_LL`. `StopRemoteControl` calls `RemoteControlHook::Stop()` before tearing down the LED windows, then destroys them and resets the file-transfer receive state.
 
+## Resume State (AutoStart / ResumeState)
+
+`ApplyConfig` starts RemoteControl when `AutoStart` **or** the internal `ResumeState` flag (0/1) is set. `ResumeState` is written **only** by the start/stop context-menu handlers, straight into `Config_RemoteControl.ini` — it is deliberately kept out of `m_definitions`, so it never shows up in the settings UI and `SaveConfig` (which snapshots `m_values`) never overwrites it. `Shutdown()` and the module destructor stop RemoteControl but do **not** clear the flag: a session that ends while RemoteControl is active — including a restart after an in-place executable update (spec §10) — resumes where it left off. Only an explicit menu **Stop** writes 0.
+
 ## LED Status Windows
 
 `RemoteControlWindow` creates small overlay windows to indicate connection status. Uses `WS_EX_LAYERED | WS_EX_TOPMOST` for always-on-top display.

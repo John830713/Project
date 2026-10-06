@@ -471,7 +471,7 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 
 ### Test infrastructure
 
-- **6 test targets** built via `make test` (not included in `make all`)
+- **7 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
@@ -486,11 +486,53 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 | MenuOrderTest | `Debug/Core/MenuOrderTest.cpp` | 13 — menu ordering, unique ids, execute dispatch |
 | ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | 32 — clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
+| UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 29 — version ordering, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
 
 When `DEBUG_CONSOLE` is defined, a timer (ID=99) fires 3s after startup and runs an 8-step automated UI test: open context menu → navigate Pet>Move>Step → set trackbar to 42 → close → verify `m_moveStep == 42`. Logs PASS/FAIL then `PostQuitMessage`.
+
+---
+
+## 10. Single-Instance & In-Place Executable Update
+
+`Core/UpdateManager` keeps exactly one running image and lets a newer build replace the
+on-disk executable **while the old instance is still running**. Windows blocks writing or
+deleting a loaded image but allows renaming it — every swap is rename-based, so the pet and
+any RemoteControl session are never interrupted.
+
+### Version source (`Build.py` → `GeneratedVersion.rc`)
+
+Each build embeds an auto-generated VERSIONINFO: `FILEVERSION (YYYY, MMDD, HHMM, SS*100+seq)` packed into `a.b.c.d`, with a sequence suffix so two builds in the same second still compare as different. A build **without** a resource (old/partial builds) reads as `0.0.0.0` and is therefore replaceable by any versioned build. `GeneratedVersion.*` is gitignored and removed by `make distclean`.
+
+### Startup gate (`main.cpp` → `UpdateManager::BeginSession`)
+
+Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers already installed) and an early `TranslationService::Load(PetConfig::Load().language)` — **before the main window exists**. Returning `false` exits `wWinMain` with 0; a second copy never starts.
+
+| Situation | Detection | Action |
+|-----------|-----------|--------|
+| No other instance | mutex free + no peer process | keep mutex, `RemoveStaleBackups`, run normally |
+| Peer running, this build **≤ on-disk** | file versions | 2-second notice (with both versions), exit |
+| Peer running, this build **newer** | file versions | rename-swap at the peer's path, 2-second "update takes effect on next launch" notice, exit |
+| Mutex set but peer path unqueryable | `QueryFullProcessImageNameW` fails | "already running" notice, exit |
+
+- Peer discovery is a **Toolhelp32 process scan keyed on the executable name** (`FindPeerProcess`), not just the mutex — it detects builds that predate this feature. The PEB image path is fixed at process creation, so even after an earlier rename-swap the running instance still reports the original registered path: always the right swap target.
+- The notice is a self-owned `WS_POPUP` with its own message loop and a 2 s `WM_TIMER` (`MessageBox` has no built-in timeout). Strings come from the `[Update]` translation section via an injected `NoticeTranslator` (`TranslationService` is loaded early just for this).
+
+### Rename-and-swap (`SwapExecutable`)
+
+1. `MoveFileW(target → <exe>.<YYYYMMDDHHMMSS>.old)` — renaming a loaded image is allowed
+2. `CopyFileW(new build → target)`
+3. copy failed → `MoveFileW(backup → target)` rollback; the error notice states whether the original was restored
+
+Target missing (nothing installed at the registered path): plain copy, no backup. Stale `*.old` backups are cleaned by the next primary launch (`RemoveStaleBackups`); a file still locked by a running old image is skipped (`DeleteFileW` fails) and retried on the following launch.
+
+### Resume state (`RemoteControlModule`)
+
+The start/stop context-menu handlers persist a `ResumeState` flag (0/1) straight in `Config_RemoteControl.ini` — deliberately **outside** `m_definitions`, so it never appears in the settings UI and `SaveConfig` never touches it. `ApplyConfig` starts RemoteControl when `AutoStart` **or** `ResumeState` is set, and `Shutdown()`/the destructor stop the service **without** clearing the flag. A session that ends while RemoteControl is active (including a restart after an in-place update) therefore resumes where it left off; only an explicit menu **Stop** writes 0.
+
+Covered by `UpdateManagerTest` (29 checks).
 
 ---
 

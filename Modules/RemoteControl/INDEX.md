@@ -21,6 +21,7 @@ Remote control via WinSock2 network protocol. Most complex module.
 - Only module linking external libraries (`ws2_32`, `ole32`)
 - Uses 4-thread pool: accept, send, server-recv, client
 - `FileTransferService` used at header level (`m_ftRx` member)
+- `ResumeState` flag (internal, outside `m_definitions`) resumes RemoteControl on next launch after it was left running — see resources/reference/modules-remotecontrol.md § Resume State
 - `winsock2.h` must be included before `windows.h` — warning if order reversed
 - Detailed analysis: [resources/reference/modules-remotecontrol.md](../../resources/reference/modules-remotecontrol.md)
 

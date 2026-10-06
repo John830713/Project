@@ -12,6 +12,7 @@ D:\Project/
 ├── GenerateModuleRegistry.* Auto-generated (by Build.py)
 ├── GeneratedBuild.mk        Auto-generated (by Build.py)
 ├── GeneratedIcon.*          Auto-generated (by Build.py)
+├── GeneratedVersion.*       Auto-generated (by Build.py) — FILEVERSION resource
 ├── TranslationRes.rc        Embeds Translation/zh-TW.ini as RCDATA
 ├── Pet.png                  Desktop pet image (loaded by MainWindow)
 ├── Config_Pet.ini           Pet config (opacity, scale, position, move)
@@ -30,6 +31,7 @@ D:\Project/
 │   ├── ModuleManager.h/.cpp Module registry, lifecycle orchestration, drop dispatch
 │   ├── InputManager.h/.cpp  Input event routing
 │   ├── Logger.h/.cpp        Module-aware logging (Log/*.txt)
+│   ├── UpdateManager.h/.cpp  Single instance + in-place rename-swap update
 │   └── DebugConsole.h/.cpp  DEBUG_CONSOLE: AllocConsole, DBG macro, interactive cmds
 │
 ├── Services/                Stateless singleton services
@@ -64,6 +66,7 @@ D:\Project/
 │   ├── UI/TooltipTest.cpp         17 tests: tooltip control behavior
 │   ├── Core/DebugStateTest.cpp    9 tests: IDebugStateProvider pattern
 │   ├── Core/MenuOrderTest.cpp     13 tests: menu ordering, unique ids, dispatch
+│   ├── Core/UpdateManagerTest.cpp 29 tests: version ordering, swap rollback, backup cleanup
 │   ├── RemoteControl/ClipboardTest.cpp 32 tests: clipboard image/text sync (text+DIB round-trip, wire pack/unpack)
 │   ├── RemoteControl/DisconnectTest.cpp 54 tests: dead-peer timeouts, epoch generations, Stop latency
 │   └── UI/GuiTest.cpp             E2E GUI test (no Makefile target, manual compile)

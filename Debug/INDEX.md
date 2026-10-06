@@ -17,7 +17,7 @@ Organized by module/category to mirror the source structure. Only compiled via d
 
 - `mingw32-make test` — builds and runs all test targets sequentially
 - Test-specific CXXFLAGS: `-O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1` (static linking)
-- Test targets link against `-luser32 -lkernel32` only (no GDI+ or module libs); TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`, DisconnectTest adds `-lws2_32 -lole32 -luuid`
+- Test targets link against `-luser32 -lkernel32` only (no GDI+ or module libs); TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`, DisconnectTest adds `-lws2_32 -lole32 -luuid`, UpdateManagerTest adds `-lversion -lgdi32`
 
 ## Referenced by
 

@@ -17,6 +17,7 @@ Project-wide shared infrastructure. All upper layers depend on this.
 | `InputManager.h/cpp` | Centralized input dispatch |
 | `Logger.h/cpp` | Categorized logs, per-module log writing |
 | `ModuleManager.h/cpp` | Module registration, lifecycle, drop/context-menu dispatch |
+| `UpdateManager.h/cpp` | Single-instance guard + in-place rename-swap executable update (see spec §10) |
 | `DebugConsole.h/cpp` | Compile-time debug console (`-DDEBUG_CONSOLE=1`) |
 
 ## Debug Console
