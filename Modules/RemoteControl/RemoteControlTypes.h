@@ -19,6 +19,25 @@ struct ClipboardPayload {
     std::vector<uint8_t> dib; // CF_DIB bytes (empty = none)
 };
 
+// Defensive port parser for user-editable INI values. Never throws: worker
+// threads read these values, and an uncaught std::stoi exception there would
+// std::terminate the whole process. Returns false for empty/garbage/out-of-
+// -range input (out is then set to def); clamps 1..1023 up to 1024 because
+// privileged ports are unusable here.
+inline bool TryParsePort(const std::wstring& s, int def, int& out) {
+    out = def;
+    if (s.empty()) return false;
+    try {
+        size_t pos = 0;
+        int port = std::stoi(s, &pos);
+        if (pos != s.size() || port < 1 || port > 65535) return false;
+        out = (port < 1024) ? 1024 : port;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 namespace Proto {
 
 enum MsgType : uint8_t {

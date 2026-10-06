@@ -68,6 +68,7 @@ private:
     void InitializeDefaults();
     bool GetBoolValue(const std::wstring& key, bool defaultValue) const;
     std::wstring GetStringValue(const std::wstring& key, const std::wstring& defaultVal) const;
+    int GetPortValue(const std::wstring& key, int defaultValue) const;
 
     void RunAccept();
     void RunSend();
@@ -79,7 +80,7 @@ private:
     static void OnHookToggle(int active, void* ud);
 
     void EnqueueEvent(std::vector<uint8_t>&& msg);
-    void Log(const wchar_t* fmt, ...);
+    void Log(const wchar_t* fmt, ...) const;
     std::string ToUtf8(const std::wstring& ws) const;
 
     static LRESULT CALLBACK LedWndProc(HWND h, UINT m, WPARAM w, LPARAM l);
@@ -98,8 +99,14 @@ private:
     std::map<std::wstring, std::wstring> m_values;
 
     std::atomic<bool> m_running{false};
-    std::atomic<bool> m_quit{false};
+    // Generation counter: bumped once by Start and once by Stop. Every worker
+    // thread captures the value at spawn and loops while m_epoch == its own,
+    // so a Stop/Start cycle can never revive a thread from the previous cycle.
+    std::atomic<unsigned> m_epoch{0};
     SOCKET m_svSocket = INVALID_SOCKET;
+    // Listening socket lives in RunAccept's stack frame; mirror it here so
+    // StopRemoteControl can closesocket() it and wake a blocked accept().
+    std::atomic<SOCKET> m_svListen{INVALID_SOCKET};
     SOCKET m_clSocket = INVALID_SOCKET;
     std::mutex m_svMx;
     std::mutex m_clMx;

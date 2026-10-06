@@ -129,6 +129,20 @@ std::wstring RemoteControlModule::GetStringValue(
     return it->second;
 }
 
+int RemoteControlModule::GetPortValue(const std::wstring& key, int defaultValue) const {
+    // Config INI is user-editable, and this runs on worker threads where an
+    // uncaught std::stoi exception would std::terminate the whole process.
+    std::wstring v = GetValue(key);
+    int port = defaultValue;
+    if (!RemoteControl::TryParsePort(v, defaultValue, port)) {
+        if (!v.empty())
+            Log(L"[!] Invalid %ls=%ls, using %d\n", key.c_str(), v.c_str(),
+                defaultValue);
+        return defaultValue;
+    }
+    return port;
+}
+
 std::string RemoteControlModule::ToUtf8(const std::wstring& ws) const {
     if (ws.empty()) return {};
     int n = WideCharToMultiByte(CP_UTF8, 0, ws.c_str(), -1,
@@ -140,7 +154,7 @@ std::string RemoteControlModule::ToUtf8(const std::wstring& ws) const {
     return r;
 }
 
-void RemoteControlModule::Log(const wchar_t* fmt, ...) {
+void RemoteControlModule::Log(const wchar_t* fmt, ...) const {
     wchar_t buf[1024];
     va_list ap;
     va_start(ap, fmt);
@@ -226,6 +240,7 @@ void RemoteControlModule::EnqueueEvent(std::vector<uint8_t>&& msg) {
 //==============================================================================
 
 void RemoteControlModule::RunAccept() {
+    const unsigned epoch = m_epoch.load();
     SOCKET sv = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sv == INVALID_SOCKET) {
         Log(L"[!] server socket() failed\n"); return;
@@ -235,7 +250,7 @@ void RemoteControlModule::RunAccept() {
     setsockopt(sv, SOL_SOCKET, SO_REUSEADDR,
                reinterpret_cast<char*>(&one), sizeof(one));
 
-    int port = std::stoi(GetValue(L"ListenPort"));
+    int port = GetPortValue(L"ListenPort", 5500);
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -250,12 +265,19 @@ void RemoteControlModule::RunAccept() {
     }
 
     Log(L"[*] Server listening on port %d\n", port);
+    m_svListen.store(sv);
 
-    while (!m_quit) {
+    while (m_epoch == epoch) {
         sockaddr_in peer{};
         int pl = sizeof(peer);
         SOCKET c = accept(sv, reinterpret_cast<sockaddr*>(&peer), &pl);
-        if (c == INVALID_SOCKET) continue;
+        if (c == INVALID_SOCKET) {
+            // Stop closes m_svListen to unblock accept(); other errors are
+            // transient. Never spin: wait briefly before trying again.
+            if (m_epoch != epoch) break;
+            Sleep(100);
+            continue;
+        }
 
         setsockopt(c, IPPROTO_TCP, TCP_NODELAY,
                    reinterpret_cast<char*>(&one), sizeof(one));
@@ -290,11 +312,17 @@ void RemoteControlModule::RunAccept() {
         FileTransferService::ResetRecv(m_ftRx);
     }
 
-    closesocket(sv);
+    // Only the side that wins the swap closes: StopRemoteControl exchanges
+    // m_svListen to INVALID_SOCKET before closesocket(), and closing the
+    // same handle twice could kill an unrelated socket that reused the value.
+    SOCKET expected = sv;
+    if (m_svListen.compare_exchange_strong(expected, INVALID_SOCKET))
+        closesocket(sv);
 }
 
 void RemoteControlModule::RunSend() {
-    while (!m_quit) {
+    const unsigned epoch = m_epoch.load();
+    while (m_epoch == epoch) {
         {
             std::unique_lock<std::mutex> lk(m_queueMx);
             m_queueCv.wait_for(lk, std::chrono::milliseconds(4));
@@ -352,8 +380,9 @@ void RemoteControlModule::RunSend() {
 }
 
 void RemoteControlModule::RunSvRecv() {
+    const unsigned epoch = m_epoch.load();
     SOCKET lastC = INVALID_SOCKET;
-    while (!m_quit) {
+    while (m_epoch == epoch) {
         SOCKET c;
         {
             std::lock_guard<std::mutex> lk(m_svMx);
@@ -375,6 +404,10 @@ void RemoteControlModule::RunSvRecv() {
             // Peer is gone (or the idle connection just died). Tear the socket
             // down instead of spinning on it: leaving m_svSocket set keeps the
             // LED green and makes every later Send fail on a dead handle.
+            // Never leave the loop here — this thread must survive so that a
+            // client which reconnects (RunAccept accepts a new socket) still
+            // has a receiver. Falling through with an INVALID_SOCKET socket
+            // takes the Sleep(500) branch above until a new one shows up.
             bool owned = false;
             {
                 std::lock_guard<std::mutex> lk(m_svMx);
@@ -383,11 +416,12 @@ void RemoteControlModule::RunSvRecv() {
                     owned = true;
                 }
             }
-            if (!owned) break;
-            closesocket(c);
-            UpdateLed();
-            Log(L"[!] Receive connection lost\n");
-            break;
+            if (owned) {
+                closesocket(c);
+                UpdateLed();
+                Log(L"[!] Receive connection lost\n");
+            }
+            continue;
         }
 
         std::wstring savePath = GetValue(L"SavePath");
@@ -418,8 +452,9 @@ void RemoteControlModule::RunSvRecv() {
 //==============================================================================
 
 void RemoteControlModule::RunClient() {
+    const unsigned epoch = m_epoch.load();
     std::wstring wIP = GetValue(L"TargetIP");
-    int port = std::stoi(GetValue(L"TargetPort"));
+    int port = GetPortValue(L"TargetPort", 5500);
     std::string ip = ToUtf8(wIP);
     std::string password = ToUtf8(GetValue(L"ControllerPw"));
 
@@ -428,12 +463,20 @@ void RemoteControlModule::RunClient() {
     wchar_t savePathW[MAX_PATH];
     MultiByteToWideChar(CP_UTF8, 0, savePathA.c_str(), -1, savePathW, MAX_PATH);
 
-    while (!m_quit) {
+    // Stop must take effect during the 3s retry backoff too, so sleep in
+    // small slices and abandon as soon as our generation is superseded.
+    auto retryWait = [this, epoch] {
+        for (int i = 0; i < 30; ++i) {
+            if (m_epoch != epoch) return;
+            Sleep(100);
+        }
+    };
+
+    while (m_epoch == epoch) {
         SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (s == INVALID_SOCKET) {
             Log(L"[!] socket() failed\n");
-            if (m_quit) break;
-            Sleep(3000); continue;
+            retryWait(); continue;
         }
 
         u_long nb = 1;
@@ -445,7 +488,7 @@ void RemoteControlModule::RunClient() {
         if (inet_pton(AF_INET, ip.c_str(), &addr.sin_addr) != 1) {
             Log(L"[!] Invalid target IP: %ls\n", wIP.c_str());
             closesocket(s);
-            Sleep(3000); continue;
+            retryWait(); continue;
         }
 
         connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
@@ -454,7 +497,7 @@ void RemoteControlModule::RunClient() {
         timeval tv = {10, 0};
         if (select(0, nullptr, &fs, nullptr, &tv) <= 0) {
             closesocket(s);
-            Sleep(3000); continue;
+            retryWait(); continue;
         }
 
         nb = 0;
@@ -471,7 +514,7 @@ void RemoteControlModule::RunClient() {
             password.c_str(), static_cast<int>(password.size()));
         if (!NetworkService::Send(s, am.data(), static_cast<int>(am.size()))) {
             closesocket(s);
-            Sleep(3000); continue;
+            retryWait(); continue;
         }
 
         {
@@ -486,12 +529,12 @@ void RemoteControlModule::RunClient() {
         FileTransferService::ReceiveState clFtRx{};
 
         bool ok = true;
-        while (ok && !m_quit) {
+        while (ok && m_epoch == epoch) {
             fd_set rs; FD_ZERO(&rs); FD_SET(s, &rs);
             timeval rtv = {0, 200000};
             int sr = select(0, &rs, nullptr, nullptr, &rtv);
 
-            if (m_quit) { ok = false; break; }
+            if (m_epoch != epoch) { ok = false; break; }
             if (sr < 0) { ok = false; break; }
             if (sr == 0) continue;
 
@@ -590,9 +633,9 @@ void RemoteControlModule::RunClient() {
         closesocket(s);
 
         UpdateLed();
-        if (!m_quit) {
+        if (m_epoch == epoch) {
             Log(L"[!] Disconnected from %ls:%d, retrying in 3s\n", wIP.c_str(), port);
-            Sleep(3000);
+            retryWait();
         }
     }
 }
@@ -731,7 +774,8 @@ void RemoteControlModule::UpdateLedPositions() {
 }
 
 void RemoteControlModule::RunLeds() {
-    while (!m_quit) {
+    const unsigned epoch = m_epoch.load();
+    while (m_epoch == epoch) {
         Sleep(200);
         UpdateLedPositions();
     }
@@ -757,7 +801,10 @@ void RemoteControlModule::ShowLed(bool visible) {
 void RemoteControlModule::StartRemoteControl() {
     if (m_running.exchange(true)) return;
 
-    m_quit = false;
+    // New generation: threads spawned below capture this value, and any
+    // thread still winding down from a previous cycle sees a mismatch and
+    // exits instead of coming back to life.
+    m_epoch.fetch_add(1);
 
     // Use the Pet HWND for taskbar progress
     HWND petHwnd = m_host->GetMainWindow();
@@ -772,7 +819,7 @@ void RemoteControlModule::StartRemoteControl() {
 
     if (!RemoteControlHook::Start(OnHookEvent, OnHookToggle, this)) {
         Log(L"[!] Hook start failed\n");
-        m_quit = true;
+        m_epoch.fetch_add(1);  // retire the LED thread started above
         DestroyLeds();
         m_running = false;
         return;
@@ -809,7 +856,14 @@ void RemoteControlModule::StopRemoteControl() {
 
     Log(L"[*] Stopping remote control\n");
 
-    m_quit = true;
+    // Supersede the current generation: every worker loop (and the 3s retry
+    // backoff in RunClient) compares against m_epoch and exits on mismatch.
+    m_epoch.fetch_add(1);
+
+    // Unblock RunAccept's accept() — it owns the listening socket, so the
+    // only way to wake it is to close it from here.
+    SOCKET ls = m_svListen.exchange(INVALID_SOCKET);
+    if (ls != INVALID_SOCKET) closesocket(ls);
 
     // Close both connections to wake up threads
     {

@@ -22,6 +22,7 @@
 //==============================================================================
 
 #include "Services/NetworkService.h"
+#include "Modules/RemoteControl/RemoteControlTypes.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -311,6 +312,207 @@ void TestKeepAliveApplied() {
     closesocket(rx);
 }
 
+// -----------------------------------------------------------------------------
+// 5. Port parsing must never throw. ListenPort/TargetPort are read on worker
+//    threads straight from a user-editable INI; an uncaught std::stoi
+//    exception there would std::terminate the whole process.
+// -----------------------------------------------------------------------------
+void TestParsePortNeverThrows() {
+    std::printf("\n-- defensive port parsing --\n");
+
+    int out = -1;
+    Check(RemoteControl::TryParsePort(L"5500", 1, out) && out == 5500,
+          "plain valid port parses");
+    Check(RemoteControl::TryParsePort(L"1024", 1, out) && out == 1024,
+          "lower boundary parses");
+    Check(RemoteControl::TryParsePort(L"65535", 1, out) && out == 65535,
+          "upper boundary parses");
+    Check(RemoteControl::TryParsePort(L"80", 1, out) && out == 1024,
+          "privileged port clamps up to 1024");
+    Check(!RemoteControl::TryParsePort(L"", 5500, out) && out == 5500,
+          "empty value falls back to default");
+    Check(!RemoteControl::TryParsePort(L"abc", 5500, out) && out == 5500,
+          "non-numeric garbage falls back to default");
+    Check(!RemoteControl::TryParsePort(L"55a0", 5500, out) && out == 5500,
+          "trailing junk falls back to default");
+    Check(!RemoteControl::TryParsePort(L"0", 5500, out) && out == 5500,
+          "zero falls back to default");
+    Check(!RemoteControl::TryParsePort(L"-1", 5500, out) && out == 5500,
+          "negative falls back to default");
+    Check(!RemoteControl::TryParsePort(L"99999", 5500, out) && out == 5500,
+          "overflow falls back to default");
+    Check(!RemoteControl::TryParsePort(L"5500.5", 5500, out) && out == 5500,
+          "float falls back to default");
+    Check(!RemoteControl::TryParsePort(L"5500 ", 5500, out) && out == 5500,
+          "trailing space falls back to default");
+
+    // The one input that used to be lethal: std::stoi would throw inside
+    // RunAccept()/RunClient(). TryParsePort catches everything.
+    bool survived = true;
+    try {
+        int junk;
+        RemoteControl::TryParsePort(L"\x4e2d\x6587", 5500, junk);
+    } catch (...) {
+        survived = false;
+    }
+    Check(survived, "CJK garbage does not escape as an exception");
+}
+
+// -----------------------------------------------------------------------------
+// 6. Reconnect regression: the sv-recv loop must SURVIVE a dead connection.
+//    The old code did `break` on RecvMsg failure, permanently killing the
+//    thread — a client that reconnected got accepted by RunAccept but never
+//    had a receiver again. Mirrors RunSvRecv()'s control flow.
+// -----------------------------------------------------------------------------
+void TestRecvLoopSurvivesDisconnect() {
+    std::printf("\n-- sv-recv loop survives disconnect and keeps receiving --\n");
+
+    std::atomic<unsigned> epoch{1};
+    std::atomic<SOCKET> svSocket{INVALID_SOCKET};
+    std::atomic<int> received{0};
+    std::atomic<int> cycles{0};
+
+    std::thread svRecv([&] {
+        const unsigned myEpoch = epoch.load();
+        SOCKET lastC = INVALID_SOCKET;
+        while (epoch.load() == myEpoch) {
+            SOCKET c = svSocket.load();
+            if (c != lastC) { lastC = c; }  // stand-in for ResetRecv
+            if (c == INVALID_SOCKET) { Sleep(50); continue; }
+
+            fd_set fs; FD_ZERO(&fs); FD_SET(c, &fs);
+            timeval tv = {0, 100000};
+            if (select(0, &fs, nullptr, nullptr, &tv) <= 0) continue;
+
+            std::vector<uint8_t> pay;
+            if (!NetworkService::RecvMsg(c, pay)) {
+                // The fixed failure path: drop the socket, stay in the loop.
+                SOCKET expected = c;
+                if (svSocket.load() == expected) {
+                    svSocket.store(INVALID_SOCKET);
+                    closesocket(c);
+                    cycles.fetch_add(1);
+                }
+                continue;
+            }
+            received.fetch_add(1);
+        }
+    });
+
+    // Sends a framed message from the PEER side; svRecv reads the other end.
+    auto deliver = [&](SOCKET peer, uint8_t payloadByte) {
+        if (peer == INVALID_SOCKET) return false;
+        uint8_t frame[5] = {0, 0, 0, 1, payloadByte};
+        return NetworkService::Send(peer, frame, 5);
+    };
+
+    // First connection: one message must arrive.
+    SOCKET tx1 = INVALID_SOCKET, rx1 = INVALID_SOCKET;
+    if (!MakeLoopbackPair(tx1, rx1)) {
+        epoch.fetch_add(1);
+        svSocket.store(INVALID_SOCKET);
+        svRecv.join();
+        std::printf("  [SKIP] loopback socket pair unavailable\n");
+        return;
+    }
+    NetworkService::ApplyTimeouts(rx1, 1000);
+    svSocket.store(rx1);
+    Check(deliver(tx1, 42), "first connection delivers a message");
+
+    int deadline = 0;
+    while (received.load() == 0 && deadline++ < 100) Sleep(10);
+    Check(received.load() == 1, "sv-recv loop read the first message");
+
+    // Peer dies. The loop must clear the socket and CONTINUE (not break).
+    closesocket(tx1);
+    deadline = 0;
+    while (cycles.load() == 0 && deadline++ < 300) Sleep(10);
+    Check(cycles.load() >= 1, "loop observed the dead connection");
+    Check(svSocket.load() == INVALID_SOCKET, "dead socket cleared");
+
+    // Second connection: proves the loop is still alive after the drop.
+    SOCKET tx2 = INVALID_SOCKET, rx2 = INVALID_SOCKET;
+    if (MakeLoopbackPair(tx2, rx2)) {
+        NetworkService::ApplyTimeouts(rx2, 1000);
+        svSocket.store(rx2);
+        Check(deliver(tx2, 43), "reconnected peer can send again");
+
+        deadline = 0;
+        while (received.load() < 2 && deadline++ < 100) Sleep(10);
+        Check(received.load() == 2,
+              "sv-recv loop survived the disconnect (old code: thread dead)");
+
+        closesocket(tx2);
+        closesocket(rx2);
+    }
+
+    // Shut the loop down the way StopRemoteControl does: bump the epoch.
+    epoch.fetch_add(1);
+    svSocket.store(INVALID_SOCKET);
+    auto t0 = std::chrono::steady_clock::now();
+    svRecv.join();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - t0).count();
+    Check(elapsed < 2000, "epoch bump joins the recv loop promptly");
+    std::printf("       (elapsed %lld ms)\n", static_cast<long long>(elapsed));
+}
+
+// -----------------------------------------------------------------------------
+// 7. Generation discipline: a Stop/Start cycle must not revive threads from
+//    the previous cycle. The old m_quit=false reset in StartRemoteControl did
+//    exactly that — old RunClient/RunLeds woke up and duplicated the new ones.
+// -----------------------------------------------------------------------------
+void TestEpochBumpDoesNotReviveOldThreads() {
+    std::printf("\n-- epoch generation prevents thread revival --\n");
+
+    std::atomic<unsigned> epoch{1};
+    std::atomic<int> oldAlive{0};
+    std::atomic<int> oldSawMismatch{0};
+    std::atomic<int> oldRuns{0};
+
+    // Simulates a long-lived worker from generation 1 (e.g. RunClient's
+    // 3s retry backoff, sliced so the epoch is checked frequently).
+    std::thread oldWorker([&] {
+        const unsigned myEpoch = epoch.load();
+        while (epoch.load() == myEpoch) {
+            oldRuns.fetch_add(1);
+            for (int i = 0; i < 30 && epoch.load() == myEpoch; ++i) Sleep(10);
+        }
+        if (epoch.load() != myEpoch) oldSawMismatch.fetch_add(1);
+    });
+
+    Sleep(100);
+    Check(oldRuns.load() > 0, "old worker ran under its own generation");
+
+    // Stop: bump the epoch. The worker must exit even though no one joins it.
+    epoch.fetch_add(1);
+    int deadline = 0;
+    while (oldRuns.load() < 2 && epoch.load() == 2 && deadline++ < 100) Sleep(10);
+    // Start again immediately: with the old m_quit flag reset this would
+    // resurrect the worker; with epoch the generation value only moves forward.
+    epoch.fetch_add(1);
+
+    oldWorker.join();
+    Check(oldSawMismatch.load() == 1, "old worker exited on generation mismatch");
+    Check(oldRuns.load() < 1000000, "old worker did not spin forever");
+
+    // New generation worker must run under epoch==3 while old is gone.
+    std::atomic<int> newRuns{0};
+    const unsigned newEpoch = epoch.load();
+    std::thread newWorker([&] {
+        while (epoch.load() == newEpoch) {
+            newRuns.fetch_add(1);
+            Sleep(10);
+        }
+    });
+    Sleep(120);
+    epoch.fetch_add(1);
+    newWorker.join();
+    Check(newRuns.load() > 0 && newRuns.load() < 500,
+          "new generation worker ran only during its own epoch");
+    (void)oldAlive;
+}
+
 }  // namespace
 
 int main() {
@@ -327,6 +529,9 @@ int main() {
     TestRecvReturnsOnDeadPeer();
     TestNoSelfDeadlockOnSendFailure();
     TestKeepAliveApplied();
+    TestParsePortNeverThrows();
+    TestRecvLoopSurvivesDisconnect();
+    TestEpochBumpDoesNotReviveOldThreads();
 
     NetworkService::Cleanup();
 
