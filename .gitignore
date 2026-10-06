@@ -1,6 +1,7 @@
 # Auto-generated build files
 GeneratedBuild.mk
 GeneratedIcon.*
+GeneratedVersion.*
 GeneratedModuleRegistry.*
 Build.log
 
