@@ -11,13 +11,13 @@ Organized by module/category to mirror the source structure. Only compiled via d
 | [AutoKey/](AutoKey/INDEX.md) | AutoKey parser tests |
 | [Core/](Core/INDEX.md) | Cross-cutting module debug tests |
 | [UI/](UI/INDEX.md) | UI-layer test utilities |
-| [RemoteControl/](RemoteControl/INDEX.md) | RemoteControl clipboard + disconnect tests |
+| [RemoteControl/](RemoteControl/INDEX.md) | RemoteControl clipboard, disconnect + diagnostics tests |
 
 ## Build & Run
 
 - `mingw32-make test` — builds and runs all test targets sequentially
 - Test-specific CXXFLAGS: `-O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1` (static linking)
-- Test targets link against `-luser32 -lkernel32` only (no GDI+ or module libs); TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`, DisconnectTest adds `-lws2_32 -lole32 -luuid`, UpdateManagerTest adds `-lversion -lgdi32`
+- Test targets link against `-luser32 -lkernel32` only (no GDI+ or module libs); TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`, DisconnectTest adds `-lws2_32 -lole32 -luuid`, DiagnosticsTest adds `-lws2_32`, UpdateManagerTest adds `-lversion -lgdi32`
 
 ## Referenced by
 

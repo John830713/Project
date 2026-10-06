@@ -471,7 +471,7 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 
 ### Test infrastructure
 
-- **7 test targets** built via `make test` (not included in `make all`)
+- **8 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
@@ -487,6 +487,7 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 | ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | 32 — clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
 | UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 29 — version ordering, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
+| DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | 35 — dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
@@ -536,7 +537,46 @@ Covered by `UpdateManagerTest` (29 checks).
 
 ---
 
-## 11. Agent Documentation Convention (`AGENTS.md`)
+## 11. Remote Diagnostics & Deploy Backdoor (`RemoteControlModule`)
+
+A management channel that rides the existing RemoteControl TCP session **outside** the F9
+control state. Either role may query the other's runtime snapshot or push a newer build;
+older peers simply skip the unknown frame types (no default case). All reports land in
+`Log/RemoteDiagnostics.txt` on both sides, so a support agent needs only one side's
+workspace. The three context-menu commands map to menu ids 2 (Diagnostics) and 3 (Deploy).
+
+| Frame | Payload | Direction |
+|-------|---------|-----------|
+| `DBG_REQ` (16) | `[seq:2]` | requester → responder |
+| `DBG_RESP` (17) | `[seq:2][snapshot text]` | responder → requester |
+| `EXE_SWAP` (18) | `[size:8][filename]` | deployer → target, **sent before the file** |
+| `EXE_RESULT` (19) | `[ok:1][message]` | target → deployer |
+
+- The requester records the `seq` with a send tick and measures RTT against the echo
+  (clock-sync free); pending requests time out after 5 s and log `TIMEOUT` to the report.
+- The snapshot (`CollectSnapshot`) is a plain-text block: session line, runtime uptime,
+  socket state, thread liveness, wire counters, a UI liveness probe (cross-thread
+  `SendMessageTimeout`) and the receiver's own log tail.
+- Deploy: `DeployMyBuild` announces `EXE_SWAP` **before** queueing the file. The target's
+  worker snapshots the old mtime of `SavePath\filename`, then polls until the size matches
+  **and** the mtime proves a fresh write (a leftover from an earlier deploy can sit there
+  with the same size), re-reads the version until it parses (mid-flush garbage reads as
+  `0.0.0.0`), checks `IsNewer(incoming, own)`, then does the rename-swap via
+  `UpdateManager`. Refusals follow the path-traversal / busy / version-gate rules and
+  always reply with `EXE_RESULT ok=0`; success swaps the running image and replies `ok=1`
+  (`DEPLOY ACCEPTED`).
+
+Handled in **both** recv loops (`RunSvRecv` and the client-side loop), so a server, a
+controller, or a disconnected target can all be probed or upgraded. `WireTap=1` mirrors
+every frame (outbound `TX` / inbound `RX`) into the module log with its type and length.
+
+Covered by `DiagnosticsTest` (35 checks) and the six-phase E2E in
+`.agent/e2e-backdoor.ps1` (boot+connect, A→B diag, B→A diag, version-gate refusal,
+version bump + restart + reconnect, successful swap).
+
+---
+
+## 12. Agent Documentation Convention (`AGENTS.md`)
 
 ### Design principle
 
