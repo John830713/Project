@@ -1,0 +1,8 @@
+Add debug-only bridge for diagnostics/deploy across middle node
+
+Forward DBG_REQ/EXE_SWAP from server-recv (C->A) to client peer (A->B)
+when a second peer exists, so a controller connected to A can query/deploy
+to a target connected from A. Forward DBG_RESP/EXE_RESULT from client-recv
+(B->A) back to server peer (A->C). Avoids changing control/event routing
+and only touches the backdoor message types; existing 1v1 behavior
+unchanged. All existing unit tests and E2E (34/34) still pass.

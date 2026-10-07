@@ -597,6 +597,13 @@ void RemoteControlModule::RunSvRecv() {
                     textChars, dibBytes);
             }
         } else if (pay.size() >= 3 && pay[0] == RemoteControl::Proto::DBG_REQ) {
+            {
+                std::lock_guard<std::mutex> lk(m_clMx);
+                if (m_clSocket != INVALID_SOCKET) {
+                    (void)ForwardToOther(&m_svMx, pay);
+                    continue;
+                }
+            }
             HandleDiagRequest(RemoteControl::Proto::r16(pay.data() + 1),
                               "server", c, &m_svMx);
         } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::DBG_RESP) {
@@ -604,6 +611,13 @@ void RemoteControlModule::RunSvRecv() {
         } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::EXE_RESULT) {
             HandleExeResult(pay.data(), static_cast<uint32_t>(pay.size()));
         } else if (pay.size() >= 1 && pay[0] == RemoteControl::Proto::EXE_SWAP) {
+            {
+                std::lock_guard<std::mutex> lk(m_clMx);
+                if (m_clSocket != INVALID_SOCKET) {
+                    (void)ForwardToOther(&m_svMx, pay);
+                    continue;
+                }
+            }
             HandleExeSwap(pay.data(), static_cast<uint32_t>(pay.size()), c,
                           &m_svMx, "server");
         }
@@ -802,9 +816,15 @@ void RemoteControlModule::RunClient() {
                                           "client", s, &m_clMx);
                     break;
                 case RemoteControl::Proto::DBG_RESP:
+                    {
+                        (void)ForwardToOther(&m_clMx, pay);
+                    }
                     HandleDiagResponse(p, n);
                     break;
                 case RemoteControl::Proto::EXE_RESULT:
+                    {
+                        (void)ForwardToOther(&m_clMx, pay);
+                    }
                     HandleExeResult(p, n);
                     break;
                 case RemoteControl::Proto::EXE_SWAP:
@@ -1159,6 +1179,43 @@ bool RemoteControlModule::SendToPeer(SOCKET s, std::mutex* mx,
     if (msg.size() >= 5) WireTap(true, msg[4], static_cast<uint32_t>(msg.size() - 4));
     return true;
 }
+bool RemoteControlModule::ForwardToOther(void* fromMx, const std::vector<uint8_t>& frame) {
+    if (frame.empty()) return false;
+    if (fromMx == &m_svMx) {
+        std::lock_guard<std::mutex> lk(m_clMx);
+        if (m_clSocket != INVALID_SOCKET) {
+            if (NetworkService::Send(m_clSocket, frame.data(),
+                                     static_cast<int>(frame.size()))) {
+                m_txPkt.fetch_add(1);
+                m_txBytes.fetch_add(frame.size() + 4);
+                m_lastTxTick.store(GetTickCount64());
+                if (frame.size() >= 5)
+                    WireTap(true, frame[4],
+                            static_cast<uint32_t>(frame.size() - 4));
+                return true;
+            }
+        }
+        return false;
+    }
+    if (fromMx == &m_clMx) {
+        std::lock_guard<std::mutex> lk(m_svMx);
+        if (m_svSocket != INVALID_SOCKET) {
+            if (NetworkService::Send(m_svSocket, frame.data(),
+                                     static_cast<int>(frame.size()))) {
+                m_txPkt.fetch_add(1);
+                m_txBytes.fetch_add(frame.size() + 4);
+                m_lastTxTick.store(GetTickCount64());
+                if (frame.size() >= 5)
+                    WireTap(true, frame[4],
+                            static_cast<uint32_t>(frame.size() - 4));
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
 
 // Walks a batch of length-prefixed frames (the RunSend output buffer) so the
 // counters mirror what actually hit the wire, not just bytes handed to send().

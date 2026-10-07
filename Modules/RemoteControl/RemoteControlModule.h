@@ -94,6 +94,7 @@ private:
     // Handled inside both recv loops so the channel works in either
     // direction regardless of F9 control state.
     bool SendToPeer(SOCKET s, std::mutex* mx, const std::vector<uint8_t>& msg);
+    bool ForwardToOther(void* fromMx, const std::vector<uint8_t>& frame);
     void CountTx(const std::vector<uint8_t>& framed);
     void WireTap(bool outbound, uint8_t type, uint32_t len);
     void RequestDiagnostics();
