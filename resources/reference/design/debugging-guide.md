@@ -8,6 +8,7 @@ or a "silent exit".
 | Path | Description |
 |------|-------------|
 | [crash-silent-exit-playbook.md](crash-silent-exit-playbook.md) | Classify and localize a silent process exit |
+| [hang-deadlock-playbook.md](hang-deadlock-playbook.md) | Capture and diagnose a freeze / shutdown deadlock (`AppHangB1`) |
 
 ## Referenced by
 
@@ -153,4 +154,27 @@ that the AUTOTEST exists on purpose. Check in this order:
   tools work standalone.
 - Release idle test: launch `Project.exe`, wait ~12 s, confirm the process is alive
   and `Log\Main.txt` shows `initialization completed` with no `shutdown completed`.
-- Verify with `mingw32-make test` (7 test executables, 0 = pass).
+- Verify with `mingw32-make test` (8 test executables, 0 = pass). The `test` recipe
+  uses cmd.exe syntax (`for %%t in (...) do`), so when invoking make from PowerShell
+  pass `SHELL=cmd.exe`: `mingw32-make SHELL=cmd.exe test`. Without it make picks the
+  MSYS `sh` and dies with `syntax error near unexpected token '('`.
+
+## 8. A `join()`ed worker must not call another thread's window functions
+
+A hang is a different symptom from a crash — record it separately. The one hit so far
+(exit via the tray was `AppHangB1`, process alive, no `Crash.txt`) was:
+
+```
+T0 (UI):  DestroyLeds -> std::thread::join -> WaitForSingleObject
+worker:   RunLeds -> UpdateLedPositions -> NtUserSetWindowPos   <-- blocked
+```
+
+`SetWindowPos`/`ShowWindow`/`SendMessage`/`DestroyWindow` on a window **owned by
+another thread** block until that owner pumps its message queue. If the owner is the
+UI thread sitting in `join()` (not pumping) and the joined worker is the one making
+the call, neither can proceed.
+
+- Fix pattern: `SWP_ASYNCWINDOWPOS` (or `PostMessage`) for cross-thread updates.
+- Regression source: `8eca1f1` made the LED mover thread joinable; fixed in `8cb024d`.
+- Full workflow, including WER dump capture, MinGW RVA→symbol mapping (`nm`, image base
+  `0x140000000`), and a bounded repro harness: [hang-deadlock-playbook.md](hang-deadlock-playbook.md).

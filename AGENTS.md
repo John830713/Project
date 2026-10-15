@@ -37,9 +37,9 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
 
 ## Tests
 
-- `mingw32-make test` — builds **and runs** 5 EXEs: `Debug/{AutoKey/AutoKeyTest,UI/TooltipTest,Core/DebugStateTest,Core/MenuOrderTest,RemoteControl/ClipboardTest}.exe`. Not built by `make all`.
-- Test flags: `-O0 -g -DENABLE_DEBUG_STATE=1`; linked `-luser32 -lkernel32` (TooltipTest adds `-lcomctl32`, ClipboardTest adds `-lgdi32`), **no GDI+**.
-- Tests compile the real `Core/ModuleManager.cpp` as a unit (MenuOrderTest/DebugStateTest) and the real `RemoteControlHook.cpp` (ClipboardTest) — keep Console/DBG behaviors out of code you want unit-testable.
+- `mingw32-make SHELL=cmd.exe test` — builds **and runs** 8 EXEs: `Debug/{AutoKey/AutoKeyTest,UI/TooltipTest,Core/DebugStateTest,Core/MenuOrderTest,Core/UpdateManagerTest,RemoteControl/ClipboardTest,RemoteControl/DisconnectTest,RemoteControl/DiagnosticsTest}.exe`. Not built by `make all`. **`SHELL=cmd.exe` is required** — the `test`/`clean` recipes use cmd.exe syntax (`for %%t in ...`, `del`), so plain `mingw32-make` runs the MSYS `sh` and dies with `syntax error near unexpected token '('` (this fails from cmd.exe too, not just PowerShell); `clean` otherwise silently no-ops. `resources/tools/local/run-tests.ps1` wraps it.
+- Test flags: `-O0 -g -DENABLE_DEBUG_STATE=1`; linked `-luser32 -lkernel32`, plus per-target extras: Tooltip `-lcomctl32`, UpdateManager `-lversion -lgdi32`, Clipboard `-lgdi32`, Disconnect `-lws2_32 -lole32 -luuid`, Diagnostics `-lws2_32`; **no GDI+**.
+- Tests compile real sources as units: `Core/ModuleManager.cpp` (MenuOrderTest/DebugStateTest), `Core/UpdateManager.cpp` (UpdateManagerTest), `RemoteControlHook.cpp` (ClipboardTest), `Services/NetworkService.cpp` (+ `FileTransferService.cpp` for DisconnectTest, NetworkService only for DiagnosticsTest) — keep Console/DBG behaviors out of code you want unit-testable.
 - `Debug/UI/GuiTest.cpp` (E2E GUI) has **no Makefile target** — compile manually if needed.
 - New test files under `Debug/` are **not auto-discovered**: each target is a hardcoded Makefile rule listing its own sources and extra `-l` libs. Copy the existing pattern (`$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) [extra libs]`) and add the exe to `TEST_TARGETS`.
 

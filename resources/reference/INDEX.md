@@ -9,6 +9,7 @@
 | [design/](design/INDEX.md) | System architecture — module system, context menu, config, build, dialogs, MainWindow, debug system |
 | [design/debugging-guide.md](design/debugging-guide.md) | **Debugging traps** — no crash reporting, silent exit classification, CJK/wofstream abort, how to simulate a handler |
 | [design/crash-silent-exit-playbook.md](design/crash-silent-exit-playbook.md) | Silent exit playbook — classify from `Log\Main.txt`, then localize |
+| [design/hang-deadlock-playbook.md](design/hang-deadlock-playbook.md) | Hang playbook — WER dump, MinGW RVA→symbol mapping, cross-thread window deadlock |
 | [autokey-analysis.md](autokey-analysis.md) | AutoKey 模組架構分析 |
 | [autokey-class-diagram.txt](autokey-class-diagram.txt) | AutoKey 類別關係圖 |
 | [build-process.md](build-process.md) | 建置流程記錄 |

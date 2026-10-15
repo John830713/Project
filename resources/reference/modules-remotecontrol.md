@@ -67,6 +67,16 @@ Lifecycle is governed by an **epoch generation counter** (`m_epoch`), not a stop
 The LED mover thread (`RunLeds`) is **joinable**: `DestroyLeds` joins it (outside
 `m_ledMx`) before `DestroyWindow`, and every `m_led` accessor takes `m_ledMx`.
 
+> **Must keep `SetWindowPos` async.** `m_led` is created by the UI thread
+> (`CreateLeds` runs from `StartRemoteControl`), but the mover is `RunLeds`. A plain
+> `SetWindowPos` from that worker blocks until the UI thread pumps, and during
+> shutdown the UI thread is inside `DestroyLeds`' `join()` — circular wait, the UI
+> never pumps, `AppHangB1`. `UpdateLedPositions` therefore passes
+> `SWP_ASYNCWINDOWPOS` (`RemoteControlModule.cpp:1011`). Any future cross-thread
+> window call here (`ShowWindow`, `SendMessage`, ...) needs the same treatment. Made
+> the thread joinable in `8eca1f1`; deadlock fixed in `8cb024d`
+> ([hang-deadlock-playbook.md](design/hang-deadlock-playbook.md)).
+
 ### Stop latency
 
 If Stop lands while a file chunk is mid-send, the UI thread waits for `m_svMx`

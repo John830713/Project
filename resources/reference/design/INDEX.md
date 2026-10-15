@@ -10,6 +10,7 @@ Desktop pet system architecture and reusable UI patterns.
 | [usage.md](usage.md) | Patterns — new module, context menu item, dialog |
 | [debugging-guide.md](debugging-guide.md) | **Start here when debugging** — no crash reporting, silent exits, CJK/wofstream trap, how to simulate |
 | [crash-silent-exit-playbook.md](crash-silent-exit-playbook.md) | Step-by-step: classify and localize a silent process exit |
+| [hang-deadlock-playbook.md](hang-deadlock-playbook.md) | Step-by-step: capture and diagnose a freeze / shutdown deadlock (`AppHangB1`) |
 
 ## Principles
 
