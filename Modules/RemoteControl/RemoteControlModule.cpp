@@ -1001,8 +1001,14 @@ void RemoteControlModule::UpdateLedPositions() {
     }
     if (y < 2) y = 2;
 
+    // SWP_ASYNCWINDOWPOS: this runs on the LED mover thread, but m_led is
+    // owned by the UI thread (CreateLeds runs there). A plain SetWindowPos
+    // would block until the owner pumps its queue, so if StopRemoteControl
+    // (UI thread) is inside DestroyLeds()->join() the two threads deadlock.
+    // The async flag posts the request instead, letting the worker return to
+    // RunLeds' epoch check and exit so the join can complete.
     SetWindowPos(m_led, HWND_TOPMOST, x, y, ledSize, ledSize,
-                 SWP_NOACTIVATE | SWP_NOZORDER);
+                 SWP_NOACTIVATE | SWP_NOZORDER | SWP_ASYNCWINDOWPOS);
 }
 
 void RemoteControlModule::RunLeds() {
@@ -1010,6 +1016,7 @@ void RemoteControlModule::RunLeds() {
     const unsigned epoch = m_epoch.load();
     while (m_epoch == epoch) {
         Sleep(200);
+        if (m_epoch != epoch) break;
         UpdateLedPositions();
     }
 }
