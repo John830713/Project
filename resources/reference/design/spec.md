@@ -438,8 +438,9 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 
 | Gate | Build flag | Effect |
 |------|-----------|--------|
-| `DEBUG_CONSOLE` | `CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1` | `AllocConsole`, `DBG()` macro, interactive CLI |
+| `DEBUG_CONSOLE` | `CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1` | `AllocConsole`, `DBG()` macro, interactive CLI + pipe server |
 | `ENABLE_DEBUG_STATE` | `-DENABLE_DEBUG_STATE=1` | `IDebugStateProvider` + `DebugGetState()` (test builds only) |
+| `PET_AUTOTEST` | `-DPET_AUTOTEST=1` | Pet context-menu click-through auto-test; self-quits after it runs |
 
 ### Debug console (`Core/DebugConsole.h/.cpp`)
 
@@ -457,10 +458,39 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 | `mod <name> cmd <id>` | Execute context menu item by original ID |
 | `log <category> [n]` | Last n lines of arbitrary log |
 | `status` | Window position, size, topmost, module count |
+| `tray <status\|show\|hide\|reset\|killwindow>` | Inspect / drive the tray + pet window (see §12) |
 | `clear` | Clear console |
 | `quit` / `exit` | Post WM_QUIT, graceful shutdown |
 
 **Console reader thread**: Background thread reads stdin. Commands dispatched to main thread via `PostThreadMessageW(WM_APP_CONSOLE_CMD)`. Quit/exit post `WM_QUIT` to main thread.
+
+**AI-drivable pipe server** (`StartPipeServer` / `StopPipeServer`): a second
+entry point into the same `RunConsoleCommand` path, for automated agents that
+cannot type into the `AllocConsole` window.
+
+- Named pipe `\\.\pipe\ProjectDebug`. One UTF-16LE command line per connection;
+  the server returns the captured `DBG()` output, then closes.
+- Protocol is deliberately trivial (connect → write → read → close) so a
+  PowerShell/Python caller needs no handshake.
+- Requests are marshalled to the main thread via `WM_APP_CONSOLE_PIPE_CMD`
+  (a `PipeRequest` pointer); the command runs there because
+  `RunConsoleCommand` is not thread-safe and tray commands touch
+  main-thread-owned windows. The pipe thread waits on a `doneEvent`
+  (bounded, 15 s) and answers the client instead of hanging if the main
+  thread is wedged.
+- `DBG()` mirrors its text into a capture buffer while
+  `DebugConsoleBeginCapture()` / `DebugConsoleEndCapture()` bracket a
+  request, so the caller sees exactly what the console prints.
+- The server keeps a fresh listening instance ready before serving the
+  current client (canonical multi-instance pattern) and uses
+  `PeekNamedPipe` before `ReadFile`, so a client that connects then aborts
+  cannot wedge the thread.
+- Debug-only: no-op inline stubs when `DEBUG_CONSOLE=0`.
+
+**`HostApp` wiring**: `Run()` calls `DebugConsoleSetHost(this)` then
+`StartPipeServer()` before the message loop and `StopPipeServer()` after.
+The host pointer lets tray commands reach `HostApp` state
+(`IsTrayIconAdded`, `GetTrayWatchdogTicks`, `DebugDestroyMainWindow`).
 
 ### Debug state (`IDebugStateProvider`)
 
@@ -492,7 +522,7 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 
 ### MainWindow auto-test
 
-When `DEBUG_CONSOLE` is defined, a timer (ID=99) fires 3s after startup and runs an 8-step automated UI test: open context menu → navigate Pet>Move>Step → set trackbar to 42 → close → verify `m_moveStep == 42`. Logs PASS/FAIL then `PostQuitMessage`.
+When `PET_AUTOTEST` is defined, a timer (ID=99) fires 3s after startup and runs an 8-step automated UI test: open context menu → navigate Pet>Move>Step → set trackbar to 42 → close → verify `m_moveStep == 42`. Logs PASS/FAIL then `PostQuitMessage`. (Gated on `PET_AUTOTEST`, not `DEBUG_CONSOLE` — the self-quit is fatal for manual/agent testing of a `DEBUG_CONSOLE` build.)
 
 ---
 
@@ -593,7 +623,9 @@ so it also works in a future "clean" mode with no pet.
 
 `TrayHost::Initialize` registers `TrayHostMessageWindow` and creates an
 `HWND_MESSAGE`-only window (parent `HWND_MESSAGE`, style 0). A `SetTimer(1, 3000)`
-watchdog tick runs for the window's whole life.
+watchdog tick runs for the window's whole life. The tray callback message is
+`WM_APP + 12` (`kTrayCallbackMessage`), deliberately **not** `WM_APP + 10`
+(which is `WM_APP_CONSOLE_CMD`, §11) so the two never alias.
 
 ### Icon & resource ID
 
@@ -647,6 +679,11 @@ reads it and starts the window `SW_HIDE` when off; double-clicking the icon
 calls `SetMainWindowVisible()` which `ShowWindow`s and saves the flag, so a
 hidden pet stays hidden across restarts.
 
+`MainWindow::Create` honours its `nCmdShow` argument (the window is created
+without `WS_VISIBLE`, then shown only when `nCmdShow != SW_HIDE`) so a hidden
+pet stays hidden across a window rebuild; `RecreateMainWindow` passes
+`SW_SHOW`/`SW_HIDE` according to `wasVisible`.
+
 ### Window recreation (in-process)
 
 `Reset Pet Window` and the watchdog both call `HostApp::RecreateMainWindow()`:
@@ -655,7 +692,7 @@ hidden pet stays hidden across restarts.
 2. `m_window->SetRecreating(true)` — `MainWindow::WM_DESTROY` then **skips**
    `PostQuitMessage(0)`, so the single shared message loop survives.
 3. `DestroyWindow(m_mainWindow)` → `delete m_window` → `new MainWindow` +
-   `Create(SW_HIDE)` → restore `SW_SHOW` if it was visible.
+   `Create(wasVisible ? SW_SHOW : SW_HIDE)`.
 4. `m_trayHost.OnPetWindowRecreated()` refreshes the tooltip.
 
 `MainWindow` exposes `SetRecreating(bool)` for the flag and a public
@@ -664,8 +701,10 @@ hidden pet stays hidden across restarts.
 
 ### Watchdog & the main-thread limit
 
-The `WM_TIMER` tick calls `HostApp::IsMainWindowAlive()` (`IsWindow`). When the
-pet window is gone it logs a warning and calls `RecreateMainWindow()`.
+The `WM_TIMER` tick bumps `TrayHost::m_watchdogTicks` (exposed via
+`GetWatchdogTicks()` for the debug channel), then calls
+`HostApp::IsMainWindowAlive()` (`IsWindow`). When the pet window is gone it
+logs a warning and calls `RecreateMainWindow()`.
 
 **This is the architectural limit of v1.** The pet window, the tray message
 window, and the `GetMessageW` loop in `HostApp::Run` all live on the main thread.
@@ -674,6 +713,24 @@ watchdog can only detect a *destroyed* window, never a wedged thread. Recovering
 a genuine hang needs an **external watchdog** (separate process) — deferred to
 Phase 2, as are service start/stop, health polling, and progress feedback. The
 v1 tray is host-level only: it does not manage services.
+
+### Debug channel
+
+When built with `DEBUG_CONSOLE`, the `tray` console command (§11) drives this
+subsystem over the named-pipe server:
+
+| Command | Effect |
+|---------|--------|
+| `tray status` | Icon-added flag, pet window alive/visible, watchdog tick count |
+| `tray show` / `tray hide` | `SetMainWindowVisible` (hides/shows + persists the flag) |
+| `tray reset` | `RecreateMainWindow()` |
+| `tray killwindow` | Destroy the pet window without recreating, to exercise the watchdog |
+
+`HostApp::DebugDestroyMainWindow()` suppresses the `WM_DESTROY` quit and leaves
+`m_mainWindow`/`m_window` pointing at the dead window so the watchdog sees it
+missing and rebuilds it — the only way to test the recovery path without a real
+crash. Behaviour is verified by `.agent/tray-smoke.ps1` (15 checks: status,
+hide/show, reset while hidden/visible, watchdog ticking, killwindow + rebuild).
 
 ### Logging & strings
 

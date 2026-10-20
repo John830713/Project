@@ -59,6 +59,24 @@ loop all live on the main thread. A hard hang of the pet window freezes the
 tray as well; the in-process watchdog can only detect a *destroyed* window, not
 a wedged thread. Recovering a genuine hang needs an external watchdog (Phase 2).
 
+The tray callback message is `WM_APP + 12` (`kTrayCallbackMessage`), chosen to
+avoid `WM_APP + 10` (`WM_APP_CONSOLE_CMD`).
+
+## Debug channel
+
+A `DEBUG_CONSOLE` build exposes `tray status|show|hide|reset|killwindow` through
+the debug console and the `\\.\pipe\ProjectDebug` server (see `spec.md` §11/§12),
+so an agent can drive and verify this subsystem. `tray killwindow` destroys the
+pet window without recreating it to exercise watchdog recovery; the host pointer
+for these commands is `HostApp::DebugConsoleSetHost` + `StartPipeServer` in
+`HostApp::Run`.
+
+## Verification
+
+`.agent/tray-smoke.ps1` launches the debug build and asserts the state machine
+(15 checks: icon added, hide/show, reset while hidden/visible, watchdog ticking,
+killwindow + rebuild, process survival).
+
 ## See also
 
 - [INDEX.md](../INDEX.md)
