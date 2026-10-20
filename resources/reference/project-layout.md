@@ -31,6 +31,7 @@ D:\Project/
 │   ├── ModuleManager.h/.cpp Module registry, lifecycle orchestration, drop dispatch
 │   ├── InputManager.h/.cpp  Input event routing
 │   ├── Logger.h/.cpp        Module-aware logging (Log/*.txt)
+│   ├── ResourceIds.h        Shared resource ID (IDI_APP_ICON) for RC + C++
 │   ├── UpdateManager.h/.cpp  Single instance + in-place rename-swap update
 │   └── DebugConsole.h/.cpp  DEBUG_CONSOLE: AllocConsole, DBG macro, interactive cmds
 │
@@ -45,6 +46,9 @@ D:\Project/
 ├── Pet/                     Desktop pet GDI+ layered window
 │   ├── MainWindow.h/.cpp    2303 lines — the core: render, popups, move, edge-snap
 │   └── PetConfig.h/.cpp     Config load/save for pet (opacity, scale, position, etc.)
+│
+├── Tray/                    System-tray shell (message window + Shell_NotifyIcon)
+│   └── TrayHost.h/.cpp       Icon, tray menu, in-process pet rebuild watchdog
 │
 ├── UI/                      Dialogs
 │   ├── SettingsDialog.h/.cpp Settings window: tabbed per-module config + pet fields
