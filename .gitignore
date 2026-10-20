@@ -20,6 +20,7 @@ Config/*.ini
 
 # Logs
 Log/
+debug_log.txt
 
 # User-specific
 MakePath.txt

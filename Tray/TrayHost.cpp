@@ -17,7 +17,7 @@ namespace {
 
 constexpr int kTrayIconId = 1;
 constexpr int kWatchdogIntervalMs = 3000;
-constexpr UINT kTrayCallbackMessage = WM_APP + 10;
+constexpr UINT kTrayCallbackMessage = WM_APP + 12;
 constexpr wchar_t kTrayWindowClass[] = L"TrayHostMessageWindow";
 
 // Host-level tray command IDs. The pet window owns 100-111 and 2000+/6000+,
@@ -296,6 +296,7 @@ void TrayHost::OnCommand(UINT cmd) {
 }
 
 void TrayHost::OnWatchdogTick() {
+    ++m_watchdogTicks;
     if (m_shuttingDown) {
         return;
     }

@@ -110,7 +110,9 @@ bool HostApp::CreateMainWindow(int nCmdShow) {
 
 int HostApp::Run() {
 #if DEBUG_CONSOLE
+    DebugConsoleSetHost(this);
     HANDLE hConsoleReader = StartConsoleReader();
+    StartPipeServer();
 #endif
 
     MSG msg;
@@ -125,6 +127,12 @@ int HostApp::Run() {
             const wchar_t* cmd = reinterpret_cast<const wchar_t*>(msg.lParam);
             RunConsoleCommand(cmd, &m_moduleManager, m_mainWindow, m_hInstance);
             free(const_cast<wchar_t*>(cmd));
+            continue;
+        }
+        if (msg.hwnd == nullptr && msg.message == WM_APP_CONSOLE_PIPE_CMD) {
+            // Runs on the main thread because RunConsoleCommand/tray commands
+            // touch main-thread-owned windows. Signals the pipe thread.
+            DebugConsoleServePipeRequest(reinterpret_cast<void*>(msg.lParam));
             continue;
         }
 #endif
@@ -145,6 +153,7 @@ int HostApp::Run() {
     }
 
 #if DEBUG_CONSOLE
+    StopPipeServer();
     StopConsoleReader(hConsoleReader);
 #endif
 
@@ -195,14 +204,11 @@ void HostApp::RecreateMainWindow() {
     delete m_window;
     m_window = nullptr;
 
-    if (!CreateMainWindow(SW_HIDE)) {
+    if (!CreateMainWindow(wasVisible ? SW_SHOW : SW_HIDE)) {
         Logger::Write(L"Error", L"Failed to recreate main window.");
         return;
     }
 
-    if (wasVisible) {
-        ShowWindow(m_mainWindow, SW_SHOW);
-    }
     m_trayHost.OnPetWindowRecreated(m_mainWindow);
     Logger::Write(L"Main", L"Main window recreated.");
 }
@@ -211,6 +217,18 @@ void HostApp::OpenMainWindowSettings() {
     if (m_window) {
         m_window->OpenSettings(m_mainWindow);
     }
+}
+
+void HostApp::DebugDestroyMainWindow() {
+    if (!IsMainWindowAlive()) {
+        return;
+    }
+    if (m_window) {
+        m_window->SetRecreating(true);
+    }
+    DestroyWindow(m_mainWindow);
+    // Keep m_mainWindow/m_window dangling so IsMainWindowAlive() reports false
+    // and the tray watchdog rebuilds the window.
 }
 
 bool HostApp::LoadMainWindowVisibility() const {

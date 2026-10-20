@@ -1,15 +1,41 @@
-#include "DebugConsole.h"
+﻿#include "DebugConsole.h"
 
 #if DEBUG_CONSOLE
 #include "ModuleManager.h"
 #include "IFeatureModule.h"
+#include "../HostApp.h"
 #include <string>
 #include <vector>
 #include <fstream>
 #include <cstdlib>
 #include <cwchar>
 
+std::wstring& DbgCaptureBuffer() {
+    static std::wstring buf;
+    return buf;
+}
+
+bool& DbgCaptureActive() {
+    static bool active = false;
+    return active;
+}
+
+void DebugConsoleBeginCapture() {
+    DbgCaptureBuffer().clear();
+    DbgCaptureActive() = true;
+}
+
+std::wstring DebugConsoleEndCapture() {
+    DbgCaptureActive() = false;
+    return DbgCaptureBuffer();
+}
+
 static DWORD s_mainThreadId = 0;
+static HostApp* s_appHost = nullptr;
+
+void DebugConsoleSetHost(HostApp* host) {
+    s_appHost = host;
+}
 
 static void SetMainThreadId(DWORD id) {
     s_mainThreadId = id;
@@ -98,6 +124,7 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
         DBG(L"  mod <name> config           - Show module config values");
         DBG(L"  mod <name> log [n]          - Show last n lines of module log (default 20)");
         DBG(L"  log <category> [n]          - Show last n lines of category log (default 20)");
+        DBG(L"  tray <status|show|hide|reset>- Tray icon / pet-window control");
         DBG(L"  clear                       - Clear console");
         DBG(L"  status                      - Show application state");
         DBG(L"  quit / exit                 - Graceful shutdown");
@@ -200,6 +227,33 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
             fflush(stdout);
         }
 
+    } else if (command == L"tray") {
+        if (!s_appHost) { DBG(L"Host not attached; tray commands unavailable."); return; }
+        if (args == L"status" || args.empty()) {
+            DBG(L"=== Tray Status ===");
+            DBG(L"  Icon added      : %s", s_appHost->IsTrayIconAdded() ? L"Yes" : L"No");
+            DBG(L"  Main window     : %s",
+                s_appHost->IsMainWindowAlive() ? L"alive" : L"MISSING");
+            DBG(L"  Main window vis : %s", s_appHost->IsMainWindowVisible() ? L"visible" : L"hidden");
+            DBG(L"  Watchdog ticks  : %lu", s_appHost->GetTrayWatchdogTicks());
+        } else if (args == L"show") {
+            s_appHost->SetMainWindowVisible(true);
+            DBG(L"  Tray: pet window shown.");
+        } else if (args == L"hide") {
+            s_appHost->SetMainWindowVisible(false);
+            DBG(L"  Tray: pet window hidden.");
+        } else if (args == L"reset") {
+            s_appHost->RecreateMainWindow();
+            DBG(L"  Tray: pet window recreated (alive=%s).",
+                s_appHost->IsMainWindowAlive() ? L"Yes" : L"No");
+        } else if (args == L"killwindow") {
+            s_appHost->DebugDestroyMainWindow();
+            DBG(L"  Tray: pet window destroyed (alive=%s); watchdog should rebuild it.",
+                s_appHost->IsMainWindowAlive() ? L"Yes" : L"No");
+        } else {
+            DBG(L"Usage: tray <status|show|hide|reset>");
+        }
+
     } else if (command == L"clear") {
         HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
         CONSOLE_SCREEN_BUFFER_INFO csbi;
@@ -228,6 +282,168 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
 
     } else {
         DBG(L"Unknown command: '%s'. Type 'help'.", command.c_str());
+    }
+}
+
+//==============================================================================
+// AI-drivable named-pipe command server
+//
+// Protocol: client connects to \\.\pipe\ProjectDebug, writes one UTF-16LE
+// command line (terminated by '\n' or ';'), the server runs it on the main
+// thread and writes back the captured output, then closes the pipe. One
+// command per connection keeps it trivial to drive from PowerShell/Python.
+//
+// The pipe thread only reads/writes bytes and hands the command to the main
+// thread; the command itself runs on the main thread (RunConsoleCommand is not
+// thread-safe, and tray commands touch windows owned by the main thread).
+//==============================================================================
+
+namespace {
+
+constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\ProjectDebug";
+
+struct PipeRequest {
+    std::wstring command;
+    std::wstring response;
+    HANDLE doneEvent;
+};
+
+// Bounded wait for the main thread to finish serving a pipe request. If the
+// main thread is wedged we still answer the client rather than hang forever.
+constexpr DWORD kPipeServeTimeoutMs = 15000;
+
+}  // namespace
+
+static std::wstring RunConsoleCommandCaptured(const std::wstring& cmd) {
+    DebugConsoleBeginCapture();
+    // RunConsoleCommand takes a mutable buffer; pass a copy.
+    std::vector<wchar_t> buf(cmd.begin(), cmd.end());
+    buf.push_back(L'\0');
+    RunConsoleCommand(buf.data(), nullptr, nullptr, nullptr);
+    return DebugConsoleEndCapture();
+}
+
+// Main-thread handler for a pipe command. Runs the command (with capture) and
+// signals the waiting pipe thread. Returns the response via req->response.
+void DebugConsoleServePipeRequest(void* requestPtr) {
+    auto* req = static_cast<PipeRequest*>(requestPtr);
+    if (!req) return;
+    req->response = RunConsoleCommandCaptured(req->command);
+    SetEvent(req->doneEvent);
+}
+
+static HANDLE CreatePipeInstance() {
+    return CreateNamedPipeW(
+        kPipeName,
+        PIPE_ACCESS_DUPLEX,
+        PIPE_TYPE_MESSAGE | PIPE_READMODE_MESSAGE | PIPE_WAIT,
+        PIPE_UNLIMITED_INSTANCES,
+        8192, 8192, 0, nullptr);
+}
+
+static DWORD WINAPI PipeServerThread(LPVOID) {
+    // Canonical multi-instance pattern: always keep a fresh instance listening
+    // so a new client can connect the instant the previous one is served
+    // (otherwise back-to-back clients race the gap while we recreate).
+    HANDLE hListen = CreatePipeInstance();
+    if (hListen == INVALID_HANDLE_VALUE) {
+        return 0;
+    }
+
+    while (true) {
+        BOOL connected = ConnectNamedPipe(hListen, nullptr)
+                         ? TRUE
+                         : (GetLastError() == ERROR_PIPE_CONNECTED);
+        if (!connected) {
+            CloseHandle(hListen);
+            hListen = CreatePipeInstance();
+            if (hListen == INVALID_HANDLE_VALUE) return 0;
+            continue;
+        }
+
+        // The next instance is already listening while we serve this client.
+        HANDLE hPipe = hListen;
+        hListen = CreatePipeInstance();
+        if (hListen == INVALID_HANDLE_VALUE) {
+            DisconnectNamedPipe(hPipe);
+            CloseHandle(hPipe);
+            return 0;
+        }
+
+        // Read a UTF-16 command (up to 8 KiB). Peek first so a client that
+        // connects then aborts (or sends nothing) cannot wedge this thread in
+        // a blocking ReadFile forever.
+        wchar_t raw[4099] = {};
+        DWORD bytesRead = 0;
+        BOOL ok = FALSE;
+        for (int waited = 0; waited < 5000; waited += 50) {  // 5s budget
+            DWORD avail = 0;
+            if (!PeekNamedPipe(hPipe, nullptr, 0, nullptr, &avail, nullptr)) {
+                break;  // broken pipe / client gone
+            }
+            if (avail > 0) {
+                ok = ReadFile(hPipe, raw, sizeof(raw) - sizeof(wchar_t),
+                              &bytesRead, nullptr);
+                break;
+            }
+            Sleep(50);
+        }
+        std::wstring cmd;
+        if (ok && bytesRead > 0) {
+            cmd.assign(raw, bytesRead / sizeof(wchar_t));
+            while (!cmd.empty() &&
+                   (cmd.back() == L'\n' || cmd.back() == L'\r' ||
+                    cmd.back() == L';'  || cmd.back() == L'\0')) {
+                cmd.pop_back();
+            }
+        }
+
+        std::wstring response = L"[pipe] empty command\n";
+        if (!cmd.empty()) {
+            PipeRequest req;
+            req.command = cmd;
+            req.doneEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+
+            if (!PostThreadMessageW(s_mainThreadId, WM_APP_CONSOLE_PIPE_CMD, 0,
+                                    reinterpret_cast<LPARAM>(&req))) {
+                response = L"[pipe] main thread not reachable\n";
+            } else {
+                DWORD wr = WaitForSingleObject(req.doneEvent, kPipeServeTimeoutMs);
+                response = (wr == WAIT_TIMEOUT)
+                           ? L"[pipe] command timed out\n"
+                           : req.response;
+            }
+            CloseHandle(req.doneEvent);
+        }
+
+        DWORD written = 0;
+        WriteFile(hPipe, response.c_str(),
+                  static_cast<DWORD>(response.size() * sizeof(wchar_t)),
+                  &written, nullptr);
+        FlushFileBuffers(hPipe);
+        DisconnectNamedPipe(hPipe);
+        CloseHandle(hPipe);
+    }
+    return 0;
+}
+
+static HANDLE s_pipeThread = nullptr;
+
+void StartPipeServer() {
+    if (s_pipeThread) return;
+    s_pipeThread = CreateThread(nullptr, 0, PipeServerThread, nullptr, 0, nullptr);
+    if (s_pipeThread) {
+        DBG(L"Pipe command server started at %s", kPipeName);
+    }
+}
+
+void StopPipeServer() {
+    if (s_pipeThread) {
+        // The thread blocks in ConnectNamedPipe; terminating it is acceptable
+        // during shutdown because it holds no locks the exit path needs.
+        TerminateThread(s_pipeThread, 0);
+        CloseHandle(s_pipeThread);
+        s_pipeThread = nullptr;
     }
 }
 

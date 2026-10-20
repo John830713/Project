@@ -38,6 +38,10 @@ public:
     // recreated, so the icon keeps pointing at a live window.
     void OnPetWindowRecreated(HWND newWindow);
 
+    //--- State for the debug channel ---
+    bool IsIconAdded() const { return m_iconAdded; }
+    unsigned long GetWatchdogTicks() const { return m_watchdogTicks; }
+
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -56,4 +60,5 @@ private:
     HICON m_icon;
     bool m_iconAdded;
     bool m_shuttingDown;
+    unsigned long m_watchdogTicks = 0;
 };

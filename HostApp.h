@@ -36,6 +36,14 @@ public:
     void RecreateMainWindow();
     void OpenMainWindowSettings();
 
+    // Debug-only: destroy the pet window without recreating, so the watchdog
+    // recovery path can be exercised. The WM_DESTROY quit is suppressed.
+    void DebugDestroyMainWindow();
+
+    //--- Tray state (debug channel) ---
+    bool IsTrayIconAdded() const { return m_trayHost.IsIconAdded(); }
+    unsigned long GetTrayWatchdogTicks() const { return m_trayHost.GetWatchdogTicks(); }
+
 private:
     bool CreateMainWindow(int nCmdShow);
     bool LoadMainWindowVisibility() const;

@@ -326,7 +326,7 @@ bool MainWindow::Create(
 
     HWND hwnd = CreateWindowExW(
         exStyle, kClassName, m_windowTitle.c_str(),
-        WS_POPUP | WS_VISIBLE,
+        WS_POPUP,
         x, y, m_imageWidth, m_imageHeight,
         nullptr, nullptr, hInstance, this);
 
@@ -337,7 +337,11 @@ bool MainWindow::Create(
     ApplyWindowImage();
     SyncMoveState();
 
-#if DEBUG_CONSOLE
+    if (nCmdShow != SW_HIDE) {
+        ShowWindow(m_hwnd, nCmdShow);
+    }
+
+#if PET_AUTOTEST
     SetTimer(m_hwnd, 99, 3000, nullptr);
 #endif
 
@@ -686,7 +690,7 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_TIMER:
         if (wParam == 1) { OnMoveTimer(); return 0; }
         if (wParam == 2 && m_edgeSnapped) { CreateSnapIndicator(); ApplySnapIndicator(); return 0; }
-#if DEBUG_CONSOLE
+#if PET_AUTOTEST
         if (wParam >= 99 && wParam <= 200) {
             static int step = 0;
             int timerId = (int)wParam;
