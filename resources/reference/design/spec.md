@@ -576,7 +576,115 @@ version bump + restart + reconnect, successful swap).
 
 ---
 
-## 12. Agent Documentation Convention (`AGENTS.md`)
+## 12. Tray System (`Tray/TrayHost`)
+
+The application-shell layer. It gives the process a presence in the notification
+area and a way back to the pet when the pet body itself is hidden, and it can
+rebuild the pet window after an in-process failure.
+
+### Ownership & lifecycle
+
+`HostApp` owns a `TrayHost` by value (`HostApp.h`), constructed with `this`. In
+`HostApp::Initialize` the tray is created **after** modules initialize/config/apply
+(`m_trayHost.Initialize()`), and in `HostApp::Run` it is shut down **before**
+modules (`m_trayHost.Shutdown()` → `m_moduleManager.ShutdownAllModules()`). The
+tray is deliberately attached at the `HostApp` layer, not the `MainWindow` layer,
+so it also works in a future "clean" mode with no pet.
+
+`TrayHost::Initialize` registers `TrayHostMessageWindow` and creates an
+`HWND_MESSAGE`-only window (parent `HWND_MESSAGE`, style 0). A `SetTimer(1, 3000)`
+watchdog tick runs for the window's whole life.
+
+### Icon & resource ID
+
+The icon comes from `LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON), …)`
+(or `LoadIconW`), falling back to `IDI_APPLICATION`. `IDI_APP_ICON` is defined
+only in `Core/ResourceIds.h`; `Build.py` writes `GeneratedIcon.rc` as
+`#include "Core/ResourceIds.h"` + `IDI_APP_ICON ICON "GeneratedIcon.ico"`. That
+header is the single definition for both the RC (windres) and C++, so the old
+windres implicit auto-assignment (which made `#define IDI_APP_ICON 101` in a
+comment meaningless) no longer applies.
+
+### Menu & command IDs
+
+Right-click (and `WM_CONTEXTMENU`) on the icon opens a standard `TrackPopupMenu`
+menu (the pet's own menu is custom-drawn; the tray uses a plain `HMENU` so the
+shell renders it):
+
+```
+Show Pet / Hide Pet     — toggle pet visibility (double-click also toggles)
+Settings                — open the pet settings dialog
+Reset Pet Window        — recreate the pet window in-process
+---
+<module groups>         — GetMenuGroups(), one submenu per module
+---
+Exit
+```
+
+The tray takes its own high command band so it cannot collide with the pet
+window's `100–111` / `2000+` / `6000+` / `9999`:
+
+| ID | Constant | Action |
+|----|----------|--------|
+| `12000` | `ID_TRAY_TOGGLE_PET` | Toggle visibility |
+| `12001` | `ID_TRAY_SETTINGS` | Settings (shows the pet first) |
+| `12003` | `ID_TRAY_RESET_PET` | Recreate the pet window |
+| `12100` | `ID_TRAY_MODULE_BASE` | Base for module items (offset by module-item index) |
+| `12999` | `ID_TRAY_EXIT` | `PostQuitMessage(0)` |
+
+Module items reuse the existing `GetMenuGroups()` / `ExecuteContextMenuItem`
+path: the tray re-runs `GetMenuGroups()` each time the menu opens, assigns
+`ID_TRAY_MODULE_BASE + runningIndex`, and dispatches `cmd - ID_TRAY_MODULE_BASE`.
+`ContextMenuItem::flags` uses the shared `kContextMenuItemDisabled` /
+`kContextMenuItemChecked` bits (`Core/IFeatureModule.h`) so the pet window and
+the tray agree without one including the other. The tray shows no tooltips.
+
+### Visibility persistence
+
+`Config/Config_Tray.ini` `[Tray] petVisible` (`1`/`0`, definitions in
+`HostApp.cpp`) records whether the pet window should be visible. `Initialize`
+reads it and starts the window `SW_HIDE` when off; double-clicking the icon
+calls `SetMainWindowVisible()` which `ShowWindow`s and saves the flag, so a
+hidden pet stays hidden across restarts.
+
+### Window recreation (in-process)
+
+`Reset Pet Window` and the watchdog both call `HostApp::RecreateMainWindow()`:
+
+1. Record `wasVisible` (`IsWindowVisible`).
+2. `m_window->SetRecreating(true)` — `MainWindow::WM_DESTROY` then **skips**
+   `PostQuitMessage(0)`, so the single shared message loop survives.
+3. `DestroyWindow(m_mainWindow)` → `delete m_window` → `new MainWindow` +
+   `Create(SW_HIDE)` → restore `SW_SHOW` if it was visible.
+4. `m_trayHost.OnPetWindowRecreated()` refreshes the tooltip.
+
+`MainWindow` exposes `SetRecreating(bool)` for the flag and a public
+`OpenSettings(HWND)` so the tray can reach Settings while the pet is hidden
+(no context menu is available then).
+
+### Watchdog & the main-thread limit
+
+The `WM_TIMER` tick calls `HostApp::IsMainWindowAlive()` (`IsWindow`). When the
+pet window is gone it logs a warning and calls `RecreateMainWindow()`.
+
+**This is the architectural limit of v1.** The pet window, the tray message
+window, and the `GetMessageW` loop in `HostApp::Run` all live on the main thread.
+A hard hang of the pet window therefore freezes the tray too, and the in-process
+watchdog can only detect a *destroyed* window, never a wedged thread. Recovering
+a genuine hang needs an **external watchdog** (separate process) — deferred to
+Phase 2, as are service start/stop, health polling, and progress feedback. The
+v1 tray is host-level only: it does not manage services.
+
+### Logging & strings
+
+`Logger::Write(L"Tray", …)` for add/remove/rebuild events. Menu labels come from
+the `[Tray]` section via `Tr(L"Tray", L"…")` — added to
+`Translation/_src/zh-TW.ini`, so no `Pet/lang/` or module lang file is needed
+(host-level strings).
+
+---
+
+## 13. Agent Documentation Convention (`AGENTS.md`)
 
 ### Design principle
 
