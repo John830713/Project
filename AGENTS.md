@@ -35,13 +35,11 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
 - New module: copy `Modules/Template/`, rename files/class, then `py Build.py`.
 - Per-module runtime config/log use the manifest's `ConfigFile`/`LogFile` names (files in `Config/`, `Log/`).
 
-## Tray shell (Tray/)
+## Tray shell
 
-- `Tray/TrayHost` owns an `HWND_MESSAGE` window + `Shell_NotifyIcon` icon, created by `HostApp` after modules init and shut down before them (`HostApp::Run`).
-- Tray menu: toggle pet (also double-click), Settings, Reset Pet Window, module groups (`GetMenuGroups()` → `ExecuteContextMenuItem`), Exit. Tray command IDs live in `12000–12999`; **module items route through `ID_TRAY_MODULE_BASE` (12100)** and offset by module-item index.
-- Pet visibility persists in `Config/Config_Tray.ini` `[Tray] petVisible` (`1`/`0`); double-click toggles + saves.
-- Reset Pet Window calls `HostApp::RecreateMainWindow()`: sets `MainWindow::SetRecreating(true)` so `WM_DESTROY` skips `PostQuitMessage`, destroys + `delete`s the window, then `new MainWindow` again. Watchdog: `SetTimer(1, 3000)` on the tray window calls `RecreateMainWindow()` when `!IsWindow(m_mainWindow)`.
-- **Main-thread limit**: pet window, tray message window and message loop share the main thread — a hard hang freezes both and the in-process watchdog cannot recover it (only a *destroyed* window). A genuine hang needs an external watchdog (Phase 2).
+- `Tray/TrayHost` (message-only window + `Shell_NotifyIcon`). Architecture, menu/ID layout, visibility persistence, and the in-process watchdog live in [resources/reference/design/spec.md](resources/reference/design/spec.md) §13 and [Tray/INDEX.md](Tray/INDEX.md).
+- Main-thread limit (pet window, tray window and message loop share the main thread) is documented there too — the in-process watchdog only rebuilds a *destroyed* window, not a wedged thread.
+
 
 ## Tests
 
