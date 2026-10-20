@@ -24,7 +24,7 @@ IGNORED_ICON_FILES = {
     "Pet.png",
 }
 
-CORE_DIRS = ["Core", "Services", "UI", "Pet"]
+CORE_DIRS = ["Core", "Services", "UI", "Pet", "Tray"]
 MODULES_DIR = ROOT / "Modules"
 
 
@@ -181,6 +181,7 @@ def generate_icon_resource():
             return ""
 
     GENERATED_ICON_RC.write_text(
+        '#include "Core/ResourceIds.h"\n'
         'IDI_APP_ICON ICON "GeneratedIcon.ico"\n',
         encoding="utf-8"
     )
