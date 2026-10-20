@@ -35,6 +35,14 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
 - New module: copy `Modules/Template/`, rename files/class, then `py Build.py`.
 - Per-module runtime config/log use the manifest's `ConfigFile`/`LogFile` names (files in `Config/`, `Log/`).
 
+## Tray shell (Tray/)
+
+- `Tray/TrayHost` owns an `HWND_MESSAGE` window + `Shell_NotifyIcon` icon, created by `HostApp` after modules init and shut down before them (`HostApp::Run`).
+- Tray menu: toggle pet (also double-click), Settings, Reset Pet Window, module groups (`GetMenuGroups()` → `ExecuteContextMenuItem`), Exit. Tray command IDs live in `12000–12999`; **module items route through `ID_TRAY_MODULE_BASE` (12100)** and offset by module-item index.
+- Pet visibility persists in `Config/Config_Tray.ini` `[Tray] petVisible` (`1`/`0`); double-click toggles + saves.
+- Reset Pet Window calls `HostApp::RecreateMainWindow()`: sets `MainWindow::SetRecreating(true)` so `WM_DESTROY` skips `PostQuitMessage`, destroys + `delete`s the window, then `new MainWindow` again. Watchdog: `SetTimer(1, 3000)` on the tray window calls `RecreateMainWindow()` when `!IsWindow(m_mainWindow)`.
+- **Main-thread limit**: pet window, tray message window and message loop share the main thread — a hard hang freezes both and the in-process watchdog cannot recover it (only a *destroyed* window). A genuine hang needs an external watchdog (Phase 2).
+
 ## Tests
 
 - `mingw32-make SHELL=cmd.exe test` — builds **and runs** 8 EXEs: `Debug/{AutoKey/AutoKeyTest,UI/TooltipTest,Core/DebugStateTest,Core/MenuOrderTest,Core/UpdateManagerTest,RemoteControl/ClipboardTest,RemoteControl/DisconnectTest,RemoteControl/DiagnosticsTest}.exe`. Not built by `make all`. **`SHELL=cmd.exe` is required** — the `test`/`clean` recipes use cmd.exe syntax (`for %%t in ...`, `del`), so plain `mingw32-make` runs the MSYS `sh` and dies with `syntax error near unexpected token '('` (this fails from cmd.exe too, not just PowerShell); `clean` otherwise silently no-ops. `resources/tools/local/run-tests.ps1` wraps it.
@@ -45,7 +53,8 @@ Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/
 
 ## Codegen & translation
 
-- `py Build.py` scans root + `Core/|Services/|UI/|Pet/` + enabled module `.cpp`/`.rc` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored.
+- `py Build.py` scans root + `Core/|Services/|UI/|Pet/|Tray/` + enabled module `.cpp`/`.rc` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored.
+- Icon resource: `Build.py` writes `GeneratedIcon.rc` as `#include "Core/ResourceIds.h"` + `IDI_APP_ICON ICON ...`, so `Core/ResourceIds.h` is the single definition of `IDI_APP_ICON` for both the RC (windres) and C++ (tray icon load). Edit that header, not the generated `.rc`.
 - Translations: `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` merged (later sources override) → `Translation/<lang>.ini` (**UTF-16 LE with BOM**), embedded via `TranslationRes.rc` as RCDATA (lang code → resource name, e.g. `zh-TW` → `ZH_TW`). Read at runtime with `Tr(L"Section", L"Key")`.
 - **English strings in the code ARE the translation keys**: `Tr()` returns the passed text verbatim when `lang=en` or the key is missing. Add/modify UI text in English first, then zh-TW; `Translation/en.ini` is a manual English reference that is never loaded at runtime (only `_src/` is merged, only zh-TW is embedded).
 - Icon gotcha: `Build.py` picks the **first alphabetically** image at project root, scanned from `.png/.ico/.jpg/.jpeg/.bmp` (case-insensitive), ignoring `Pet.png` and `GeneratedIcon.*` — dropping a stray image at root silently changes the app icon. `Test.png` is the intended icon source.

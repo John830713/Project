@@ -57,6 +57,11 @@ Exit
 - Context menu labels rebuilt on `WM_APP_RELOAD_PETCONFIG` (sent by SettingsDialog when language changes)
 - Reloads TranslationService and rebuilds all menu strings
 
+## Host control hooks (Tray)
+
+- `SetRecreating(bool)` — set by `HostApp::RecreateMainWindow()`; while true, `WM_DESTROY` skips `PostQuitMessage(0)` so the message loop survives an in-process rebuild.
+- `OpenSettings(HWND)` — public so the tray can open settings while the pet body is hidden (no context menu reachable in that state).
+
 ## Referenced by
 
 - [INDEX.md](../INDEX.md)

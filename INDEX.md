@@ -9,6 +9,7 @@ Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++.
 | [Core/](Core/INDEX.md) | Shared infrastructure (interfaces, managers, config) |
 | [Services/](Services/INDEX.md) | Stateless singleton services (i18n, file, network) |
 | [Pet/](Pet/INDEX.md) | Desktop pet transparent GDI+ window |
+| [Tray/](Tray/INDEX.md) | System-tray shell (icon, menu, watchdog, pet visibility) |
 | [UI/](UI/INDEX.md) | Settings dialog (Pet + per-module tabs) |
 | [Debug/](Debug/INDEX.md) | Module-level debug content (unit tests, test utils, E2E GUI test) |
 | [Translation/](Translation/INDEX.md) | Localization sources |
@@ -21,6 +22,7 @@ Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++.
 main.cpp → HostApp → ModuleManager → IFeatureModule (each module)
                    → InputManager
                    → MainWindow (Pet/)
+                   → TrayHost (Tray/)
                    → SettingsDialog (UI/)
 ```
 

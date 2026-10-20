@@ -35,6 +35,15 @@ public:
 
     HWND GetHWND() const { return m_hwnd; }
 
+    // Set while the host is tearing down this window on purpose (tray "Reset
+    // Pet Window"). WM_DESTROY then skips PostQuitMessage so the rebuild can
+    // run on the same message loop.
+    void SetRecreating(bool recreating) { m_recreating = recreating; }
+
+    // Host-level entry so the tray can open settings when the pet body itself
+    // is hidden (no context menu available in that state).
+    void OpenSettings(HWND hwnd);
+
     static constexpr UINT WM_APP_SLIDER_CHANGE = WM_APP + 2;
     static constexpr UINT WM_APP_RELOAD_PETCONFIG = WM_APP + 3;
     static constexpr UINT WM_APP_CONTEXT_ACTION = WM_APP + 4;
@@ -48,7 +57,6 @@ private:
     void OnDropFiles(HWND hwnd, HDROP hDrop);
     void OnContextMenu(HWND hwnd, POINT pt);
     void ShowAboutDialog(HWND hwnd);
-    void OpenSettings(HWND hwnd);
     void OpenMenuOrderDialog(HWND hwnd);
     int ShowDropActionMenu(HWND hwnd, const std::vector<ResolvedDropAction>& actions);
     void SavePosition();
@@ -149,6 +157,7 @@ private:
     bool m_edgeSnapped;
     int m_snapEdge;
     Gdiplus::Bitmap* m_snapIndicator;
+    bool m_recreating = false;
 
     enum { SNAP_NONE = 0, SNAP_TOP, SNAP_BOTTOM, SNAP_LEFT, SNAP_RIGHT };
 

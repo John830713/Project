@@ -5,6 +5,7 @@
 #include "Core/InputManager.h"
 #include "Core/LoaderConfig.h"
 #include "Services/TranslationService.h"
+#include "Tray/TrayHost.h"
 
 #include <windows.h>
 #include <string>
@@ -28,7 +29,18 @@ public:
     ModuleManager& GetModuleManager();
     InputManager& GetInputManager();
 
+    //--- Main window control (tray host drives these) ---
+    bool IsMainWindowAlive() const;
+    bool IsMainWindowVisible() const;
+    void SetMainWindowVisible(bool visible);
+    void RecreateMainWindow();
+    void OpenMainWindowSettings();
+
 private:
+    bool CreateMainWindow(int nCmdShow);
+    bool LoadMainWindowVisibility() const;
+    void SaveMainWindowVisibility(bool visible) const;
+
     std::wstring LoadProjectTitle() const;
     std::wstring LoadHostHint() const;
     std::wstring LoadAppVersion() const;
@@ -41,5 +53,5 @@ private:
     MainWindow* m_window = nullptr;
     ModuleManager m_moduleManager;
     InputManager m_inputManager;
-    bool m_comInitialized = false;
-};
+    TrayHost m_trayHost;
+    bool m_comInitialized = false;};

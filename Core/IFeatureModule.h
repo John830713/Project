@@ -21,6 +21,12 @@ struct ContextMenuItem {
     std::wstring tooltip;
 };
 
+// Flags shared by every host that renders ContextMenuItem into a menu.
+// Keeping them here (next to the struct) means the pet window and the tray
+// host agree on the bit values without one including the other.
+constexpr UINT kContextMenuItemDisabled = 0x80000000u;
+constexpr UINT kContextMenuItemChecked = 0x40000000u;
+
 class IFeatureModule {
 public:
     virtual ~IFeatureModule() {}

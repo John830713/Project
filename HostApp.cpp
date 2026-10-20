@@ -14,8 +14,22 @@
 
 namespace fs = std::filesystem;
 
+namespace {
+
+// Host-level pet visibility flag. Lives in the Tray module config so it sits
+// next to the tray settings that own the toggle, and so it survives restarts.
+constexpr wchar_t kTrayConfigFile[] = L"Config_Tray.ini";
+constexpr wchar_t kTrayConfigSection[] = L"Tray";
+
+const std::vector<ConfigFieldDefinition> kTrayConfigDefinitions = {
+    { L"petVisible", L"Pet Visible", ConfigValueType::Bool, L"1", 0, 0 },
+};
+
+}  // namespace
+
 HostApp::HostApp()
-    : m_hInstance(nullptr), m_mainWindow(nullptr), m_window(nullptr), m_comInitialized(false) {}
+    : m_hInstance(nullptr), m_mainWindow(nullptr), m_window(nullptr), m_trayHost(this),
+      m_comInitialized(false) {}
 HostApp::~HostApp() {
     if (m_comInitialized) CoUninitialize();
     delete m_window;
@@ -53,17 +67,9 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::
     std::wstring hostHint = LoadHostHint();
     std::wstring appVersion = LoadAppVersion();
 
-    m_window = new MainWindow();
-    if (!m_window->Create(
-            hInstance,
-            nCmdShow,
-            this,
-            &m_moduleManager,
-            &m_inputManager,
-            m_mainWindow,
-            projectTitle,
-            hostHint,
-            appVersion)) {
+    bool petVisible = LoadMainWindowVisibility();
+    int windowCmdShow = petVisible ? nCmdShow : SW_HIDE;
+    if (!CreateMainWindow(windowCmdShow)) {
         Logger::Write(L"Error", L"Failed to create main window.");
         return false;
     }
@@ -74,7 +80,31 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::
     m_moduleManager.LoadAllConfigs();
     m_moduleManager.ApplyAllConfigs();
 
+    if (!m_trayHost.Initialize()) {
+        Logger::Write(L"Warning", L"Tray host failed to initialize.");
+    }
+
     Logger::Write(L"Main", L"Host application initialization completed.");
+    return true;
+}
+
+bool HostApp::CreateMainWindow(int nCmdShow) {
+    m_window = new MainWindow();
+    if (!m_window->Create(
+            m_hInstance,
+            nCmdShow,
+            this,
+            &m_moduleManager,
+            &m_inputManager,
+            m_mainWindow,
+            LoadProjectTitle(),
+            LoadHostHint(),
+            LoadAppVersion())) {
+        delete m_window;
+        m_window = nullptr;
+        m_mainWindow = nullptr;
+        return false;
+    }
     return true;
 }
 
@@ -118,6 +148,7 @@ int HostApp::Run() {
     StopConsoleReader(hConsoleReader);
 #endif
 
+    m_trayHost.Shutdown();
     m_moduleManager.ShutdownAllModules();
     timeEndPeriod(1);
     Logger::Write(L"Main", L"Host application shutdown completed.");
@@ -131,6 +162,68 @@ TranslationService* HostApp::GetTranslationService() const {
 }
 ModuleManager& HostApp::GetModuleManager() { return m_moduleManager; }
 InputManager& HostApp::GetInputManager() { return m_inputManager; }
+
+bool HostApp::IsMainWindowAlive() const {
+    return m_mainWindow != nullptr && IsWindow(m_mainWindow) != FALSE;
+}
+
+bool HostApp::IsMainWindowVisible() const {
+    return IsMainWindowAlive() && IsWindowVisible(m_mainWindow) != FALSE;
+}
+
+void HostApp::SetMainWindowVisible(bool visible) {
+    if (!IsMainWindowAlive()) {
+        return;
+    }
+    ShowWindow(m_mainWindow, visible ? SW_SHOW : SW_HIDE);
+    SaveMainWindowVisibility(visible);
+}
+
+void HostApp::RecreateMainWindow() {
+    bool wasVisible = IsMainWindowVisible();
+
+    if (m_window) {
+        // Suppress the unconditional PostQuitMessage in WM_DESTROY so the
+        // message loop survives the rebuild.
+        m_window->SetRecreating(true);
+    }
+    if (IsMainWindowAlive()) {
+        DestroyWindow(m_mainWindow);
+    }
+    m_mainWindow = nullptr;
+
+    delete m_window;
+    m_window = nullptr;
+
+    if (!CreateMainWindow(SW_HIDE)) {
+        Logger::Write(L"Error", L"Failed to recreate main window.");
+        return;
+    }
+
+    if (wasVisible) {
+        ShowWindow(m_mainWindow, SW_SHOW);
+    }
+    m_trayHost.OnPetWindowRecreated(m_mainWindow);
+    Logger::Write(L"Main", L"Main window recreated.");
+}
+
+void HostApp::OpenMainWindowSettings() {
+    if (m_window) {
+        m_window->OpenSettings(m_mainWindow);
+    }
+}
+
+bool HostApp::LoadMainWindowVisibility() const {
+    auto values = ConfigManager::LoadModuleConfig(
+        kTrayConfigFile, kTrayConfigSection, kTrayConfigDefinitions);
+    return values[L"petVisible"] == L"1";
+}
+
+void HostApp::SaveMainWindowVisibility(bool visible) const {
+    std::map<std::wstring, std::wstring> values;
+    values[L"petVisible"] = visible ? L"1" : L"0";
+    ConfigManager::SaveModuleConfig(kTrayConfigFile, kTrayConfigSection, values);
+}
 
 std::wstring HostApp::ReadTextFileIfExists(const wchar_t* fileName) const {
     try {

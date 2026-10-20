@@ -843,7 +843,8 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_DESTROY:
         StopMoveTimer();
         KillTimer(m_hwnd, 2);
-        PostQuitMessage(0);
+        if (!m_recreating)
+            PostQuitMessage(0);
         return 0;
 
     case WM_APP_SLIDER_CHANGE: {
