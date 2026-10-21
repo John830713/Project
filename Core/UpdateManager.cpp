@@ -31,6 +31,11 @@ const wchar_t kNoticeClass[] = L"UpdateManagerNoticeWnd";
 // ERROR_ALREADY_EXISTS. Released by the OS at process exit.
 HANDLE g_hMutex = nullptr;
 
+// Created by the primary instance and left open so a newer build being
+// launched can signal "relaunch yourself" via this event. Released by the OS
+// at process exit.
+HANDLE g_hReloadEvent = nullptr;
+
 //------------------------------------------------------------------------------
 // Path helpers
 //------------------------------------------------------------------------------
@@ -243,20 +248,13 @@ bool SignalReload(const std::wstring& exePath) {
 }
 
 bool PollReloadRequest(std::wstring* exePathOut) {
-    const std::wstring self = ModulePath();
-    const std::wstring name = ReloadEventName(self);
+    if (!g_hReloadEvent) return false;
 
-    HANDLE ev = OpenEventW(EVENT_ALL_ACCESS, FALSE, name.c_str());
-    if (!ev) return false;
+    if (WaitForSingleObject(g_hReloadEvent, 0) != WAIT_OBJECT_0) return false;
 
-    bool requested = false;
-    if (WaitForSingleObject(ev, 0) == WAIT_OBJECT_0) {
-        if (exePathOut) *exePathOut = self;  // relaunch the registered path
-        ResetEvent(ev);
-        requested = true;
-    }
-    CloseHandle(ev);
-    return requested;
+    if (exePathOut) *exePathOut = ModulePath();  // relaunch the registered path
+    ResetEvent(g_hReloadEvent);
+    return true;
 }
 
 bool SpawnReloadedInstance(const std::wstring& exePath) {
@@ -405,6 +403,11 @@ bool BeginSession(const NoticeTranslator& tr, bool waitForHandoff) {
             // in-place-update backups. A backup still locked by a running old
             // image stays and is retried on the next launch.
             g_hMutex = hMutex;
+            // Publish the reload event so a later newer-build launch can ask
+            // this instance to relaunch. CreateEventW returns the existing
+            // object if one is already there.
+            g_hReloadEvent = CreateEventW(nullptr, TRUE /*manual reset*/, FALSE,
+                                          ReloadEventName(self).c_str());
             RemoveStaleBackups(self);
             return true;
         }
