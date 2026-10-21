@@ -301,6 +301,9 @@ void TrayHost::OnWatchdogTick() {
         return;
     }
 
+    // Give an in-place update a chance to relaunch us with the new build.
+    m_host->PollForReload();
+
     if (!m_host->IsMainWindowAlive()) {
         Logger::Write(L"Warning", L"Pet window missing; rebuilding it.");
         m_host->RecreateMainWindow();

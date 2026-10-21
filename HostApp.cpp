@@ -5,6 +5,7 @@
 #include "Core/ConfigManager.h"
 #include "Core/LoaderConfig.h"
 #include "Core/DebugConsole.h"
+#include "Core/UpdateManager.h"
 #include "GeneratedModuleRegistry.h"
 
 #include <objbase.h>
@@ -229,6 +230,20 @@ void HostApp::DebugDestroyMainWindow() {
     DestroyWindow(m_mainWindow);
     // Keep m_mainWindow/m_window dangling so IsMainWindowAlive() reports false
     // and the tray watchdog rebuilds the window.
+}
+
+void HostApp::PollForReload() {
+    std::wstring target;
+    if (!UpdateManager::PollReloadRequest(&target)) {
+        return;
+    }
+
+    Logger::Write(L"Main", L"Reload requested; relaunching " + target);
+    if (UpdateManager::SpawnReloadedInstance(target)) {
+        PostQuitMessage(0);
+    } else {
+        Logger::Write(L"Error", L"Reload spawn failed; staying on the old build.");
+    }
 }
 
 bool HostApp::LoadMainWindowVisibility() const {

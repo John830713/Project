@@ -40,6 +40,11 @@ public:
     // recovery path can be exercised. The WM_DESTROY quit is suppressed.
     void DebugDestroyMainWindow();
 
+    // Checks the UpdateManager relaunch handoff event; when an update has
+    // asked this instance to reload, spawns the new build and quits. Safe to
+    // call frequently (non-blocking).
+    void PollForReload();
+
     //--- Tray state (debug channel) ---
     bool IsTrayIconAdded() const { return m_trayHost.IsIconAdded(); }
     unsigned long GetTrayWatchdogTicks() const { return m_trayHost.GetWatchdogTicks(); }

@@ -131,12 +131,18 @@ void TerminateHandler() {
 // 4. Route to Pet mode (full app) or Clean mode (standalone runner, future)
 //==============================================================================
 
-int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
     DBG_OPEN();
     DBG(L"Application started");
 
     SetUnhandledExceptionFilter(CrashFilter);
     std::set_terminate(TerminateHandler);
+
+    // A relaunch spawned by an update passes --reload-wait so BeginSession
+    // waits for the old instance to release the single-instance mutex.
+    if (pCmdLine && wcsstr(pCmdLine, L"--reload-wait")) {
+        UpdateManager::SetReloadWaitRequested(true);
+    }
 
     ConfigManager::Initialize(hInstance);
     Logger::Initialize(hInstance);
@@ -151,7 +157,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
     // second copy must not start.
     if (!UpdateManager::BeginSession([](const std::wstring& key) {
             return TranslationService::Get()->Tr(L"Update", key);
-        })) {
+        }, UpdateManager::IsReloadWaitRequested())) {
         return 0;
     }
 

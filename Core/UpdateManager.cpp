@@ -214,6 +214,72 @@ void ShowNoticeText(const std::wstring& text, const std::wstring& caption) {
     ShowNotice(text, caption);
 }
 
+//------------------------------------------------------------------------------
+// Relaunch handoff
+//------------------------------------------------------------------------------
+
+namespace {
+bool g_reloadWaitRequested = false;
+}
+
+void SetReloadWaitRequested(bool requested) { g_reloadWaitRequested = requested; }
+bool IsReloadWaitRequested() { return g_reloadWaitRequested; }
+
+std::wstring ReloadEventName(const std::wstring& exePath) {
+    const std::wstring base = BaseNameNoExt(FileNamePart(exePath));
+    return L"Local\\" + base + L"_Reload";
+}
+
+bool SignalReload(const std::wstring& exePath) {
+    const std::wstring name = ReloadEventName(exePath);
+    HANDLE ev = CreateEventW(nullptr, TRUE /*manual reset*/, FALSE, name.c_str());
+    if (!ev) return false;
+    // The event name carries the launch target; a second CreateEventW of the
+    // same name returns the existing object, which is what the running
+    // instance already holds open.
+    SetEvent(ev);
+    CloseHandle(ev);
+    return true;
+}
+
+bool PollReloadRequest(std::wstring* exePathOut) {
+    const std::wstring self = ModulePath();
+    const std::wstring name = ReloadEventName(self);
+
+    HANDLE ev = OpenEventW(EVENT_ALL_ACCESS, FALSE, name.c_str());
+    if (!ev) return false;
+
+    bool requested = false;
+    if (WaitForSingleObject(ev, 0) == WAIT_OBJECT_0) {
+        if (exePathOut) *exePathOut = self;  // relaunch the registered path
+        ResetEvent(ev);
+        requested = true;
+    }
+    CloseHandle(ev);
+    return requested;
+}
+
+bool SpawnReloadedInstance(const std::wstring& exePath) {
+    std::wstring cmdLine = L"\"" + exePath + L"\" --reload-wait";
+
+    std::vector<wchar_t> mutableCmd(cmdLine.begin(), cmdLine.end());
+    mutableCmd.push_back(L'\0');
+
+    STARTUPINFOW si{sizeof(si)};
+    PROCESS_INFORMATION pi{};
+    const std::wstring workDir = DirPart(exePath);
+
+    if (!CreateProcessW(exePath.c_str(), mutableCmd.data(), nullptr, nullptr,
+                        FALSE, 0, nullptr,
+                        workDir.empty() ? nullptr : workDir.c_str(), &si, &pi)) {
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return true;
+}
+
 std::uint64_t ReadFileVersion(const std::wstring& path) {
     DWORD handle = 0;
     DWORD size = GetFileVersionInfoSizeW(path.c_str(), &handle);
@@ -314,33 +380,50 @@ int RemoveStaleBackups(const std::wstring& modulePath) {
 // BeginSession
 //==============================================================================
 
-bool BeginSession(const NoticeTranslator& tr) {
+bool BeginSession(const NoticeTranslator& tr, bool waitForHandoff) {
     const std::wstring self = ModulePath();
     const std::wstring base = BaseNameNoExt(FileNamePart(self));
     const std::wstring mutexName = L"Local\\" + base + L"_Instance";
 
-    SetLastError(ERROR_SUCCESS);
-    HANDLE hMutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
-    const bool mutexAlreadyExists =
-        (hMutex != nullptr && GetLastError() == ERROR_ALREADY_EXISTS);
+    HANDLE hMutex = nullptr;
+    bool mutexAlreadyExists = false;
+
+    // When we relaunch ourselves, the old instance is still winding down and
+    // may hold the mutex for a moment. Retry briefly instead of refusing.
+    const int attempts = waitForHandoff ? 40 : 1;  // 40 * 150ms = 6s
+    for (int i = 0; i < attempts; ++i) {
+        SetLastError(ERROR_SUCCESS);
+        hMutex = CreateMutexW(nullptr, TRUE, mutexName.c_str());
+        mutexAlreadyExists =
+            (hMutex != nullptr && GetLastError() == ERROR_ALREADY_EXISTS);
+
+        DWORD peerPid = 0;
+        std::wstring peerPath;
+        const bool peerFound = FindPeerProcess(self, &peerPid, &peerPath);
+        if (!mutexAlreadyExists && !peerFound) {
+            // Primary instance: advertise via the mutex and clean up stale
+            // in-place-update backups. A backup still locked by a running old
+            // image stays and is retried on the next launch.
+            g_hMutex = hMutex;
+            RemoveStaleBackups(self);
+            return true;
+        }
+
+        if (hMutex) {
+            CloseHandle(hMutex);
+            hMutex = nullptr;
+        }
+
+        if (!waitForHandoff) break;
+        Sleep(150);
+    }
 
     DWORD peerPid = 0;
     std::wstring peerPath;
     const bool peerFound = FindPeerProcess(self, &peerPid, &peerPath);
 
-    if (!mutexAlreadyExists && !peerFound) {
-        // Primary instance: advertise via the mutex and clean up any stale
-        // in-place-update backups. A backup still locked by a running old
-        // image stays and is retried on the next launch.
-        g_hMutex = hMutex;
-        RemoveStaleBackups(self);
-        return true;
-    }
-
     // Update / duplicate-launch mode. Never starts a second copy and never
     // disturbs the running instance.
-    if (hMutex) CloseHandle(hMutex);
-
     const std::uint64_t ourVersion = ReadFileVersion(self);
 
     if (!peerFound) {
@@ -373,7 +456,14 @@ bool BeginSession(const NoticeTranslator& tr) {
         return false;
     }
 
-    ShowNotice(tr(L"Update complete. The new version takes effect on the next launch."),
+    // Ask the running instance to relaunch from the registered path (now the
+    // new build) so the update takes effect immediately instead of waiting for
+    // the next manual launch.
+    const bool relaunch = SignalReload(peerPath);
+
+    ShowNotice(relaunch
+                   ? tr(L"Update complete. Restarting with the new version...")
+                   : tr(L"Update complete. The new version takes effect on the next launch."),
                tr(L"Update"));
     return false;
 }

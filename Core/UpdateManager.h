@@ -61,7 +61,42 @@ int RemoveStaleBackups(const std::wstring& modulePath);
 //   same/older -> a notice window. Both paths show a notice that auto-closes
 //   after two seconds and return false — wWinMain exits without starting a
 //   second copy.
-bool BeginSession(const NoticeTranslator& tr);
+//
+// `waitForHandoff` is set by a relaunch we performed ourselves: the previous
+// instance is still winding down, so the mutex (and its peer) may briefly
+// still exist. In that mode we retry acquiring the mutex for a few seconds and
+// start normally once the old instance lets go, instead of refusing.
+bool BeginSession(const NoticeTranslator& tr, bool waitForHandoff = false);
+
+//------------------------------------------------------------------------------
+// Relaunch handoff (named event Local\<exe base>_Reload)
+//
+// The double-clicked newer build cannot restart the running instance directly.
+// After a successful swap it calls SignalReload(); the running instance polls
+// PollReloadRequest() and, on a signal, relaunches itself from the registered
+// path (now the new build) and quits. The spawned process runs with
+// --reload-wait so BeginSession waits for the old instance to release the mutex.
+//------------------------------------------------------------------------------
+
+// Name of the handoff event for the given executable path.
+std::wstring ReloadEventName(const std::wstring& exePath);
+
+// (Clicked copy) Ask the running instance to relaunch. `exePath` is the
+// registered path to relaunch (the freshly swapped build). Auto-resets on the
+// next poll. Returns false if the event could not be created/signalled.
+bool SignalReload(const std::wstring& exePath);
+
+// (Running instance) Non-blocking. When a reload has been requested, returns
+// true once and fills `exePathOut` with the path to relaunch.
+bool PollReloadRequest(std::wstring* exePathOut);
+
+// Spawns `exePath` with the reload-wait flag and returns true on success.
+bool SpawnReloadedInstance(const std::wstring& exePath);
+
+// True when this process was started with the reload-wait flag. Set once from
+// wWinMain's command line.
+void SetReloadWaitRequested(bool requested);
+bool IsReloadWaitRequested();
 
 // Shows an auto-closing (2s) topmost notice window with `text` under the
 // given caption. Blocks the calling thread in its own message loop — safe
