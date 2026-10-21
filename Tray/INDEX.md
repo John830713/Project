@@ -49,10 +49,15 @@ saves it, so a hidden pet stays hidden across restarts.
 
 ## Watchdog
 
-A `SetTimer(1, 3000)` tick calls `HostApp::IsMainWindowAlive()`; when the pet
-window is gone (`!IsWindow(m_mainWindow)`) the host calls `RecreateMainWindow()`
-under a `m_recreating` flag so the unconditional `PostQuitMessage` in
-`MainWindow::WM_DESTROY` is skipped and the same message loop keeps running.
+A `SetTimer(1, 3000)` tick calls `HostApp::PollForReload()` (an in-place update
+waiting to relaunch the process) and then `HostApp::IsMainWindowAlive()`; when
+the pet window is gone (`!IsWindow(m_mainWindow)`) the host calls
+`RecreateMainWindow()` under a `m_recreating` flag so the unconditional
+`PostQuitMessage` in `MainWindow::WM_DESTROY` is skipped and the same message
+loop keeps running.
+
+The reload poll reuses this tick so a swapped-in build takes effect within ~3 s
+without the user closing the app (see `spec.md` §10 "Auto-relaunch").
 
 **Architectural limit.** The pet window, this message window and the message
 loop all live on the main thread. A hard hang of the pet window freezes the
@@ -76,6 +81,11 @@ for these commands is `HostApp::DebugConsoleSetHost` + `StartPipeServer` in
 `.agent/tray-smoke.ps1` launches the debug build and asserts the state machine
 (15 checks: icon added, hide/show, reset while hidden/visible, watchdog ticking,
 killwindow + rebuild, process survival).
+
+`.agent/swap-smoke.ps1` asserts auto-relaunch end-to-end (10 checks: old pid
+exits, a new pid runs the swapped-in build from the registered path, upstream
+log records the relaunch, updater exits) by building a far-future-versioned copy
+in a sandbox and double-clicking it against a running instance.
 
 ## See also
 

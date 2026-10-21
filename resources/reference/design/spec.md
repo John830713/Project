@@ -545,7 +545,7 @@ Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers 
 |-----------|-----------|--------|
 | No other instance | mutex free + no peer process | keep mutex, `RemoveStaleBackups`, run normally |
 | Peer running, this build **≤ on-disk** | file versions | 2-second notice (with both versions), exit |
-| Peer running, this build **newer** | file versions | rename-swap at the peer's path, 2-second "update takes effect on next launch" notice, exit |
+| Peer running, this build **newer** | file versions | rename-swap at the peer's path, signal relaunch, 2-second "restarting with the new version" notice, exit |
 | Mutex set but peer path unqueryable | `QueryFullProcessImageNameW` fails | "already running" notice, exit |
 
 - Peer discovery is a **Toolhelp32 process scan keyed on the executable name** (`FindPeerProcess`), not just the mutex — it detects builds that predate this feature. The PEB image path is fixed at process creation, so even after an earlier rename-swap the running instance still reports the original registered path: always the right swap target.
@@ -557,7 +557,19 @@ Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers 
 2. `CopyFileW(new build → target)`
 3. copy failed → `MoveFileW(backup → target)` rollback; the error notice states whether the original was restored
 
-Target missing (nothing installed at the registered path): plain copy, no backup. Stale `*.old` backups are cleaned by the next primary launch (`RemoveStaleBackups`); a file still locked by a running old image is skipped (`DeleteFileW` fails) and retried on the following launch.
+Target missing (nothing installed at the registered path): plain copy, no backup. Stale `*.old` backups are cleaned by the next primary launch (`RemoveStaleBackups`); a file still locked by a running old image is skipped (`DeleteFileW` fails) and retried on the following launch. Because the relaunched instance *is* that next primary launch, the backup created by an update is cleaned up as soon as the new build takes over.
+
+### Auto-relaunch (`--reload-wait`, reload event)
+
+The point of an in-place update is that double-clicking a newer build makes the update take effect **without the user closing the app**. After a successful swap the launching instance signals a relaunch instead of only telling the user to restart later.
+
+- The **primary instance** creates and holds a manual-reset named event `Local\<base>_Reload` (`g_hReloadEvent`) for its whole lifetime (`BeginSession`, no-peer branch).
+- A newer-build launch calls `SignalReload(peerPath)` (same event name) right after the swap, then shows the "Update complete. Restarting with the new version..." notice (falling back to the "next launch" text if signalling fails) and exits.
+- The running instance polls the event **on the main thread** via `HostApp::PollForReload()`, called from `TrayHost::OnWatchdogTick` (every 3 s). On a signal it calls `UpdateManager::SpawnReloadedInstance` (a `CreateProcessW` of the registered path with `--reload-wait`) and then `PostQuitMessage(0)`.
+- The spawned child sees `--reload-wait` in `pCmdLine` → `SetReloadWaitRequested(true)` → `BeginSession(..., waitForHandoff=true)` retries the single-instance mutex 40×150 ms (≈6 s) for the old instance to release it, instead of bailing with "already running". It then claims primary and runs the new build.
+- `PollReloadRequest` waits on the held handle directly (not `OpenEventW` by name); `SignalReload`'s `CreateEventW` returns the already-open object. This is why the primary must hold the event open — otherwise the signal is lost.
+
+Verified end-to-end by `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid runs from the registered path with the newer version, `Log/Main.txt` records the relaunch, and the updater process exits.
 
 ### Resume state (`RemoteControlModule`)
 
