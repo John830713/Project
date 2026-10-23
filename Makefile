@@ -122,7 +122,7 @@ Debug/RemoteControl/DisconnectTest.exe: Debug/RemoteControl/DisconnectTest.cpp S
 Debug/RemoteControl/DiagnosticsTest.exe: Debug/RemoteControl/DiagnosticsTest.cpp Services/NetworkService.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32
 
-Debug/WebAgent/WebAgentTest.exe: Debug/WebAgent/WebAgentTest.cpp Modules/WebAgent/HttpServer.cpp Modules/WebAgent/WebAgentTypes.cpp Services/NetworkService.cpp Core/Logger.cpp
+Debug/WebAgent/WebAgentTest.exe: Debug/WebAgent/WebAgentTest.cpp Modules/WebAgent/HttpServer.cpp Modules/WebAgent/WebAgentApi.cpp Modules/WebAgent/WebAgentTypes.cpp Services/NetworkService.cpp Core/Logger.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32
 
 -include $(DEPS)

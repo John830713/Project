@@ -61,10 +61,20 @@ private:
     HttpResponse HandlePing(const HttpRequest& req);
     HttpResponse HandleStatus(const HttpRequest& req);
 
+    //--- Static file serving (P1) ---
+    HttpResponse HandleServeFile(const std::string& relPath);        // /agent.core.js etc.
+    HttpResponse HandleServeRoot(const std::string& tail);           // /serve/<name>
+    HttpResponse HandleModulesJson();                                // /modules
+
     //--- Helpers ---
     std::string JsonEscape(const std::string& in) const;
     SessionInfo& TouchSession(const std::string& sid, const std::string& url);
     void CleanupSessionsLocked();
+
+    // Read `<root>/<rel>` and return a JS response; the file is looked up under
+    // m_resourceRoot then m_resourceRoot/modules (mirrors Flask's /serve).
+    bool TryReadJs(const std::string& rel, std::string& out, std::string& resolvedPath);
+    static std::string ReadFileOrEmpty(const std::string& path);
 
     std::string m_resourceRoot;
     std::string m_agentDir;

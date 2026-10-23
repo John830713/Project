@@ -10,13 +10,17 @@
 //==============================================================================
 
 #include "Modules/WebAgent/HttpServer.h"
+#include "Modules/WebAgent/WebAgentApi.h"
 #include "Modules/WebAgent/WebAgentTypes.h"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include <cstdio>
+#include <fstream>
 #include <string>
+
+#include <windows.h>
 
 namespace {
 
@@ -26,6 +30,15 @@ int g_fail = 0;
 void Check(bool ok, const char* name) {
     if (ok) { g_pass++; std::printf("  [PASS] %s\n", name); }
     else    { g_fail++; std::printf("  [FAIL] %s\n", name); }
+}
+
+void MkDir(const std::string& path) {
+    CreateDirectoryA(path.c_str(), nullptr);
+}
+
+void WriteFile(const std::string& path, const std::string& content) {
+    std::ofstream f(path, std::ios::binary);
+    f << content;
 }
 
 // Minimal blocking HTTP client for the test. Sends a raw request and returns
@@ -137,6 +150,57 @@ int main() {
 
             server.Stop();
             Check(!server.IsRunning(), "server: stops cleanly");
+        }
+    }
+
+    //--- P1: static JS serving via WebAgentApi against a temp resource root ---
+    {
+        std::string root = "D:\\Project\\.agent\\webagent-testroot";
+        MkDir("D:\\Project\\.agent");
+        MkDir(root);
+        MkDir(root + "\\agent");
+        MkDir(root + "\\modules");
+        WriteFile(root + "\\agent\\core.js", "// core vtest\nvar x=1;");
+        WriteFile(root + "\\modules\\demo.js",
+                  "// ==UserScript==\n// @version   1.2.3\n// ==/UserScript==\n");
+        WriteFile(root + "\\modules\\modules.json",
+                  "[{\"name\":\"demo\",\"script\":\"demo.js\",\"enabled\":true}]");
+
+        webagent::WebAgentApi api;
+        api.SetResourceRoot(root);
+
+        webagent::HttpServer server;
+        api.RegisterRoutes(server);
+        int port = 18792;
+        bool started = server.Start("127.0.0.1", port);
+        Check(started, "static: server start");
+        if (started) {
+            std::string core = HttpRoundTrip(port, "GET /agent.core.js HTTP/1.1\r\nHost: x\r\n\r\n");
+            Check(Contains(core, "200 OK"), "static: core.js 200");
+            Check(Contains(core, "core vtest"), "static: core.js served body");
+            Check(Contains(core, "no-cache"), "static: core.js no-cache header");
+            Check(Contains(core, "x-javascript"), "static: core.js js content-type");
+
+            std::string modules = HttpRoundTrip(port, "GET /modules HTTP/1.1\r\nHost: x\r\n\r\n");
+            Check(Contains(modules, "200 OK"), "static: /modules 200");
+            Check(Contains(modules, "demo"), "static: /modules lists module");
+            Check(Contains(modules, "1.2.3"), "static: /modules injects @version");
+
+            std::string serve = HttpRoundTrip(port,
+                "GET /serve/demo.js HTTP/1.1\r\nHost: x\r\n\r\n");
+            Check(Contains(serve, "200 OK"), "static: /serve/<module> 200");
+            Check(Contains(serve, "UserScript"), "static: /serve served module body");
+
+            std::string traversal = HttpRoundTrip(port,
+                "GET /serve/..%2f..%2fsecret HTTP/1.1\r\nHost: x\r\n\r\n");
+            Check(Contains(traversal, "400") || Contains(traversal, "404"),
+                  "static: path traversal blocked");
+
+            std::string missing = HttpRoundTrip(port,
+                "GET /agent.core.js.missing HTTP/1.1\r\nHost: x\r\n\r\n");
+            Check(Contains(missing, "404"), "static: unknown path 404");
+
+            server.Stop();
         }
     }
 
