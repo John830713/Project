@@ -4,6 +4,8 @@
 //            and registers every route onto an HttpServer. The JSON shapes are
 //            kept byte-compatible with the original Python Flask server so the
 //            existing Tampermonkey core.js / modules need no changes.
+//
+// Protocol source of truth: D:\Tampermonkey\resources\tools\local\server.py
 //==============================================================================
 
 #pragma once
@@ -31,10 +33,19 @@ struct SessionInfo {
     double lastSeen = 0.0; // seconds since epoch
 };
 
-// A queued manual command + its optional session filter.
+// A queued manual command. `json` is the serialized command object; `filter`
+// is the optional `_session` value ("" == no filter, deliver to any session).
 struct QueuedCommand {
     std::string json;
-    std::string sessionFilter; // empty == no filter
+    std::string filter;
+    bool hasFilter = false;
+};
+
+// A stored report (POST /report or the merged body of POST /poll).
+struct ReportEntry {
+    std::string session;
+    std::string cmd;
+    std::string json; // includes the injected "time" field
 };
 
 class WebAgentApi {
@@ -56,23 +67,48 @@ public:
 
     void SetShowConsole(bool on) { m_showConsole = on; }
 
+    static constexpr int kDefaultPort = 8921;
+
 private:
-    //--- Individual route handlers ---
+    //--- Route handlers ---
     HttpResponse HandlePing(const HttpRequest& req);
+    HttpResponse HandleHello(const HttpRequest& req);
+    HttpResponse HandleTag(const HttpRequest& req);
+    HttpResponse HandlePoll(const HttpRequest& req);
+    HttpResponse HandleReport(const HttpRequest& req);
+    HttpResponse HandleCommand(const HttpRequest& req);
+    HttpResponse HandleCommands(const HttpRequest& req);
     HttpResponse HandleStatus(const HttpRequest& req);
+    HttpResponse HandleMetrics(const HttpRequest& req);
+    HttpResponse HandleQueue(const HttpRequest& req);
+    HttpResponse HandleReports(const HttpRequest& req);
+    HttpResponse HandleResults(const HttpRequest& req);
+    HttpResponse HandleTasks(const HttpRequest& req);
+    HttpResponse HandleTaskStart(const HttpRequest& req, const std::string& name);
+    HttpResponse HandleTaskStop(const HttpRequest& req);
+    HttpResponse HandleHidden(const HttpRequest& req);
+    HttpResponse HandleDump(const HttpRequest& req);
 
     //--- Static file serving (P1) ---
-    HttpResponse HandleServeFile(const std::string& relPath);        // /agent.core.js etc.
-    HttpResponse HandleServeRoot(const std::string& tail);           // /serve/<name>
-    HttpResponse HandleModulesJson();                                // /modules
+    HttpResponse HandleServeFile(const std::string& relPath);
+    HttpResponse HandleServeRoot(const std::string& tail);
+    HttpResponse HandleModulesJson();
+    HttpResponse HandleDashboard();
 
     //--- Helpers ---
     std::string JsonEscape(const std::string& in) const;
-    SessionInfo& TouchSession(const std::string& sid, const std::string& url);
     void CleanupSessionsLocked();
+    void PurgeCommandsLocked(const std::vector<std::string>& deadSessions);
+    bool IsTrackingUrl(const std::string& url) const;
 
-    // Read `<root>/<rel>` and return a JS response; the file is looked up under
-    // m_resourceRoot then m_resourceRoot/modules (mirrors Flask's /serve).
+    // Append a parsed report (adds "time"). Assumes lock held.
+    void AppendReportLocked(const std::string& body);
+
+    // Deliver a matching command to `sid`, or return false if none available.
+    // `out` receives the command JSON augmented with tagged + poll_ms.
+    bool PopCommandForSessionLocked(const std::string& sid, std::string& out);
+
+    // Read `<root>/<rel>`; looks under m_resourceRoot then m_resourceRoot/modules.
     bool TryReadJs(const std::string& rel, std::string& out, std::string& resolvedPath);
     static std::string ReadFileOrEmpty(const std::string& path);
 
@@ -85,16 +121,14 @@ private:
     std::mutex m_mutex;
     std::map<std::string, SessionInfo> m_sessions;
     std::deque<QueuedCommand> m_queue;
-    std::deque<std::string> m_reports; // ring buffer, JSON strings, max 500
+    std::deque<QueuedCommand> m_pendingFiltered; // commands awaiting their session
+    std::deque<ReportEntry> m_reports;           // ring buffer, max 500
 
     std::chrono::steady_clock::time_point m_startTime;
 
     static constexpr int kSessionTtlSec = 300;
     static constexpr int kMaxQueue = 100;
     static constexpr size_t kMaxReports = 500;
-
-public:
-    static constexpr int kDefaultPort = 8921;
 };
 
 } // namespace webagent

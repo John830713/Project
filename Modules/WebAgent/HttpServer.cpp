@@ -34,35 +34,6 @@ const char* StatusText(int status) {
 
 } // namespace
 
-std::string UrlDecode(const std::string& in) {
-    std::string out;
-    out.reserve(in.size());
-    for (size_t i = 0; i < in.size(); ++i) {
-        char c = in[i];
-        if (c == '+') {
-            out.push_back(' ');
-        } else if (c == '%' && i + 2 < in.size()) {
-            auto hex = [](char h) -> int {
-                if (h >= '0' && h <= '9') return h - '0';
-                if (h >= 'a' && h <= 'f') return h - 'a' + 10;
-                if (h >= 'A' && h <= 'F') return h - 'A' + 10;
-                return -1;
-            };
-            int hi = hex(in[i + 1]);
-            int lo = hex(in[i + 2]);
-            if (hi >= 0 && lo >= 0) {
-                out.push_back(static_cast<char>((hi << 4) | lo));
-                i += 2;
-            } else {
-                out.push_back(c);
-            }
-        } else {
-            out.push_back(c);
-        }
-    }
-    return out;
-}
-
 bool ReadFileToString(const std::string& path, std::string& out) {
     std::ifstream f(path, std::ios::binary);
     if (!f.is_open()) {

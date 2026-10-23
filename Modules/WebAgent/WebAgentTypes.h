@@ -23,9 +23,14 @@ struct HttpRequest {
     std::map<std::string, std::string> headers;           // lower-cased keys
     std::string body;                                     // raw request body
 
-    // Returns the value of a query-string parameter, or "" if absent.
+    // Returns the decoded value of a query-string parameter, or "" if absent.
+    // Splits on '&' first, then percent-decodes the value (matches Flask's
+    // request.args semantics, so encoded '&' inside a value stays intact).
     std::string GetQuery(const std::string& key) const;
 };
+
+// URL-decode a component ("%20" -> " ", "+" -> " ").
+std::string UrlDecode(const std::string& in);
 
 // An HTTP response handed back to the connection writer. Body is sent verbatim
 // after the status line + headers (which the writer generates).

@@ -85,6 +85,7 @@ int main() {
         Check(req.GetQuery("session") == "abc123", "query: session value");
         Check(req.GetQuery("tagged") == "1", "query: tagged value");
         Check(req.GetQuery("missing") == "", "query: missing key -> empty");
+        Check(req.GetQuery("url") == "http://x/y", "query: value is url-decoded");
         Check(webagent::UrlDecode("a%20b+c") == "a b c", "urldecode: %20 and +");
         Check(webagent::UrlDecode("%2Fpath%2F") == "/path/", "urldecode: slashes");
         Check(webagent::UrlDecode("plain") == "plain", "urldecode: passthrough");
@@ -199,6 +200,112 @@ int main() {
             std::string missing = HttpRoundTrip(port,
                 "GET /agent.core.js.missing HTTP/1.1\r\nHost: x\r\n\r\n");
             Check(Contains(missing, "404"), "static: unknown path 404");
+
+            server.Stop();
+        }
+    }
+
+    //--- P2: core command protocol ---
+    {
+        std::string root = "D:\\Project\\.agent\\webagent-protocol";
+        MkDir("D:\\Project\\.agent");
+        MkDir(root);
+
+        webagent::WebAgentApi api;
+        api.SetResourceRoot(root);
+        api.SetAgentDir(root + "\\.agent");
+
+        webagent::HttpServer server;
+        api.RegisterRoutes(server);
+        int port = 18793;
+        bool started = server.Start("127.0.0.1", port);
+        Check(started, "proto: server start");
+        if (started) {
+            auto post = [&](const std::string& pathAndQuery, const std::string& body) {
+                return HttpRoundTrip(port,
+                    "POST " + pathAndQuery + " HTTP/1.1\r\nHost: x\r\n"
+                    "Content-Type: application/json\r\nContent-Length: " +
+                    std::to_string(body.size()) + "\r\n\r\n" + body);
+            };
+            auto get = [&](const std::string& pathAndQuery) {
+                return HttpRoundTrip(port,
+                    "GET " + pathAndQuery + " HTTP/1.1\r\nHost: x\r\n\r\n");
+            };
+
+            std::string hello = post("/hello",
+                "{\"session\":\"s1\",\"url\":\"https://example.com/p\",\"title\":\"T\",\"agentVersion\":\"1.3\"}");
+            Check(Contains(hello, "200 OK"), "proto: hello 200");
+            Check(Contains(hello, "\"ok\":true"), "proto: hello ok");
+
+            std::string status = get("/status");
+            Check(Contains(status, "s1"), "proto: status lists session");
+            Check(Contains(status, "tasks_available"), "proto: status has tasks_available");
+
+            std::string push = post("/command", "{\"cmd\":\"ping\"}");
+            Check(Contains(push, "\"ok\":true"), "proto: command queued");
+            Check(Contains(push, "\"queue_size\":1"), "proto: command queue size 1");
+
+            std::string poll1 = post("/poll?session=s1&url=https%3A%2F%2Fexample.com%2Fp", "");
+            Check(Contains(poll1, "\"cmd\":\"ping\""), "proto: poll delivers command");
+            Check(Contains(poll1, "\"tagged\":false"), "proto: poll carries tagged");
+            Check(Contains(poll1, "\"poll_ms\":"), "proto: poll carries poll_ms");
+
+            std::string emptyPoll = post("/poll?session=s1&url=https%3A%2F%2Fexample.com%2Fp", "");
+            Check(!Contains(emptyPoll, "\"cmd\""), "proto: poll empty when queue drained");
+
+            std::string report = post("/report",
+                "{\"session\":\"s1\",\"cmd\":\"ping\",\"result\":\"PONG\"}");
+            Check(Contains(report, "204"), "proto: report 204");
+
+            std::string reports = get("/reports?limit=10");
+            Check(Contains(reports, "PONG"), "proto: reports contains result");
+            Check(Contains(reports, "ping"), "proto: reports contains cmd");
+
+            std::string metrics = get("/metrics");
+            Check(Contains(metrics, "sessions_total"), "proto: metrics has sessions_total");
+            Check(Contains(metrics, "queue_size"), "proto: metrics has queue_size");
+
+            std::string queue = get("/queue");
+            Check(Contains(queue, "pending_filtered"), "proto: queue has pending_filtered");
+
+            // Session-filtered command must not leak to another session.
+            post("/command", "{\"cmd\":\"navigate\",\"url\":\"https://x\",\"_session\":\"other\"}");
+            std::string s1poll = post("/poll?session=s1&url=https%3A%2F%2Fexample.com%2Fp", "");
+            Check(!Contains(s1poll, "\"cmd\":\"navigate\""), "proto: filtered cmd not delivered to s1");
+            Check(Contains(s1poll, "\"poll_ms\":"), "proto: poll hints work pending");
+            std::string otherPoll = post("/poll?session=other&url=https%3A%2F%2Fother.com", "");
+            Check(Contains(otherPoll, "\"cmd\":\"navigate\""), "proto: filtered cmd delivered to target");
+            Check(!Contains(otherPoll, "\"_session\""), "proto: _session stripped from delivery");
+
+            std::string batch = post("/commands",
+                "[{\"cmd\":\"a\"},{\"cmd\":\"b\"}]");
+            Check(Contains(batch, "\"pushed\":2"), "proto: batch pushed 2");
+
+            std::string tag = post("/tag", "{\"session\":\"s1\",\"tagged\":true}");
+            Check(Contains(tag, "204"), "proto: tag 204");
+            std::string taggedPoll = post("/poll?session=s1&url=https%3A%2F%2Fexample.com%2Fp", "");
+            Check(Contains(taggedPoll, "\"tagged\":true"), "proto: tagged reflected in poll");
+
+            // Hidden selectors round-trip.
+            std::string hiddenAdd = post("/hidden",
+                "{\"selectors\":[\"#ad\",\".banner\"],\"url\":\"https://example.com\"}");
+            Check(Contains(hiddenAdd, "\"count\":2"), "proto: hidden add count");
+            std::string hiddenGet = get("/hidden");
+            Check(Contains(hiddenGet, "#ad"), "proto: hidden persisted selector");
+
+            // Dump round-trip.
+            std::string dumpPost = post("/dump",
+                "{\"selector\":\"#x\",\"rect\":{\"w\":10}}");
+            Check(Contains(dumpPost, "\"ok\":true"), "proto: dump saved");
+            std::string dumpGet = get("/dump");
+            Check(Contains(dumpGet, "#x"), "proto: dump readable");
+
+            // Tracking sessions are quarantined from commands.
+            post("/hello",
+                "{\"session\":\"track\",\"url\":\"https://google-analytics.com/collect\"}");
+            post("/command", "{\"cmd\":\"shouldnotdeliver\"}");
+            std::string trackPoll = post("/poll?session=track&url=https%3A%2F%2Fgoogle-analytics.com%2Fcollect", "");
+            Check(!Contains(trackPoll, "shouldnotdeliver"), "proto: tracking session skipped");
 
             server.Stop();
         }

@@ -62,10 +62,15 @@ void WebAgentModule::SaveConfig() {
 }
 
 void WebAgentModule::ApplyConfig() {
-    // ApplyConfig is called after the settings dialog writes new values. Restart
-    // the server so a changed port/host/root takes effect immediately.
-    if (ServerRunning()) {
-        StopServer();
+    // ApplyConfig runs once at startup and again after the settings dialog.
+    // Restart the server so a changed port/host/root/root takes effect. Keep a
+    // manually-started server alive even if AutoStart is off.
+    bool wasRunning = ServerRunning();
+    StopServer();
+    if (!GetBoolValue(L"Enabled", true)) {
+        return;
+    }
+    if (wasRunning || GetBoolValue(L"AutoStart", true)) {
         StartServer();
     }
 }
@@ -133,6 +138,7 @@ bool WebAgentModule::StartServer() {
     int port = GetIntValue(L"Port", webagent::WebAgentApi::kDefaultPort);
 
     m_api->SetResourceRoot(root);
+    m_api->SetAgentDir(root + "/.agent");
     m_api->SetShowConsole(GetBoolValue(L"ShowConsole", false));
 
     m_server = std::make_unique<webagent::HttpServer>();

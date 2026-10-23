@@ -85,9 +85,6 @@ private:
     std::unordered_map<std::string, RouteEntry> m_routes;
 };
 
-// URL-decode a query/path component ("%20" -> " ", "+" -> " ").
-std::string UrlDecode(const std::string& in);
-
 // Read an entire file into a string. Returns false if the file is missing.
 bool ReadFileToString(const std::string& path, std::string& out);
 
