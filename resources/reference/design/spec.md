@@ -781,3 +781,74 @@ Only information that helps an agent **start** navigating:
 
 Everything else is discovered via the INDEX chain.
 
+
+---
+
+## 14. Web Agent Bridge (`Modules/WebAgent`)
+
+### Purpose
+
+A C++ port of the Python Flask server (`D:\Tampermonkey\resources\tools\local\server.py`) that the Tampermonkey userscripts talk to. The split is deliberate:
+
+- **Framework** (HTTP server, routing, session/queue state, config, dashboard) lives in `D:\Project`.
+- **Scripts and resources** (`agent/*.js`, `modules/*.js`, `modules.json`, `loader-core.js`) stay in `D:\Tampermonkey`, served from `ResourceRoot`.
+
+The browser side is untouched: `agent/core.js` still POSTs `/hello`, long-polls `/poll`, and reports results, so existing station modules and `send_cmd.py` keep working. Python is expected to be removed from `D:\Tampermonkey` eventually.
+
+### Ownership & lifecycle
+
+`WebAgentModule` is a normal `IFeatureModule`. `ApplyConfig()` runs once at startup (`HostApp` calls `ApplyAllConfigs`) and again after the settings dialog saves. It:
+
+1. records `ServerRunning()`,
+2. always `StopServer()`s (so a changed port/host/root rebinds),
+3. returns early if `Enabled` is off,
+4. starts when `wasRunning || AutoStart` — so a manually started server survives a settings apply even with `AutoStart` off.
+
+`Shutdown()` stops the server and saves config. The module owns `std::unique_ptr<HttpServer>` and `std::unique_ptr<WebAgentApi>`; `WebAgentApi::RegisterRoutes` is called before `Start`.
+
+### Threading model
+
+`HttpServer` spawns **one** listener thread. Connections are accepted and handled **inline** with `Connection: close`; there is no worker pool. `Stop()` closes the listen socket to unblock `accept` and joins the thread (a slow in-flight client can delay this by up to the 5 s recv timeout). `WebAgentApi` guards all mutable state with one mutex; handlers lock briefly around session/queue/report access.
+
+This is sufficient because the clients are browser long-polls and small CLI requests; throughput is low and each request is a few milliseconds of JSON work.
+
+### Request handling
+
+- `HttpRequest` parses the request line, headers, and body (`Content-Length`), capped at 8 MB.
+- `path` is percent-decoded; `query` is stored raw and `GetQuery()` splits on `&` and decodes each value (this moved from the router to `WebAgentTypes` to fix `/status` showing `%3A`-escaped URLs).
+- Routing is an ordered list: exact matches first, then one prefix match (`/serve*` → tail, `/task*` → tail). `OPTIONS` short-circuits to `204` with CORS headers. Unknown paths get the router's 404.
+
+### Session, queue, and report state
+
+Mirrors `server.py` semantics (verified by the protocol tests):
+
+- `/hello` registers `{url, lastSeen, tagged}`; an existing session with the same URL is dropped and its queued commands purged.
+- `/poll?session=&url=` refreshes the session. If the POST body carries a `cmd`, it is appended to the report ring first. Tracking URLs (length > 500 or host matching `kTrackingDomains`) are flagged and never receive commands. Otherwise the pending-filtered list is checked, then up to 100 queue entries, then the session's own commands are delivered with `tagged` and a `poll_ms` hint.
+- Commands may carry `_session`; `PopCommandForSessionLocked` parks non-matching commands in `m_pendingFiltered` and strips `_session` before delivery.
+- Queue cap is 100 (`/command` → 429 `queue full`, `/commands` → 429 `queue overflow`). Session TTL is 300 s; the report ring holds 500 entries.
+
+### Static surface
+
+Fixed paths mirror Flask exactly (`/agent.core.js` → `agent/core.js`, `/loader-core.js` → `resources/tools/loader-core.js`, etc.). `/modules` parses `modules.json` with nlohmann `json` and injects a `version` field by reading the first 2 KB of each script for `@version`. `/serve/<name>` searches `ResourceRoot` then `ResourceRoot/modules`; `PathIsSafe` rejects `..`, absolute paths, and drive letters. Core scripts get `Cache-Control: no-cache` and a trailing newline for byte-parity.
+
+### Dashboard
+
+`GET /` and `GET /dashboard` return a self-contained HTML page (no external assets): live sessions with tracking badges, `/status` + `/metrics` polling, a command sender (`/command`), and a `/reports` feed. It intentionally has no task UI because the task engine is deferred.
+
+### Deferred: task engine
+
+`/tasks` returns `{"available":[]}`, `/task/<name>` 404s, `/task/stop` returns `{"ok":true}`. `/reports` and `/results` (tail of `task_results.jsonl`) are implemented so the existing UI path works. The Python generator pipeline is to be re-expressed as a C++ state machine.
+
+### Tests & verification
+
+`Debug/WebAgent/WebAgentTest.cpp` is a Makefile test target (63 assertions) with its own loopback HTTP client. It covers URL decoding, response builders, the router (exact/prefix/OPTIONS), static serving + traversal rejection, and the full protocol flow including filtered delivery and tracking quarantine. `HttpServer.cpp`, `WebAgentApi.cpp`, `WebAgentTypes.cpp`, `NetworkService.cpp`, and `Logger.cpp` are compiled into the test EXE.
+
+Live verification was done against the real `Project.exe` and the real `D:\Tampermonkey` tree: `/modules` listed 15 entries with injected versions, and `send_cmd.py` completed an `eval "1+1"` round-trip (a simulated browser polled, executed, and reported `=> 2`).
+
+### Gotchas
+
+- `winsock2.h` **must** precede `windows.h`. `WebAgentModule.h` includes `HttpServer.h` first intentionally.
+- Avoid `s_host`, `s_addr`, `s_net`, `s_imp`, `s_lh`, `s_impno` as identifiers — `inaddr.h` defines them as macros.
+- `Logger::WriteModuleLog` takes a wide source name (`kLogSource` is `const wchar_t*`).
+- Rebuilding requires stopping a running `Project.exe` first (`Permission denied` on link).
+- Translations can be module-scoped: `Modules/WebAgent/lang/zh-TW.ini` is merged by `Build.py`; config labels resolve through `Tr(L"Common", <label>)`.

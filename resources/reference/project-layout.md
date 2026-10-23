@@ -63,7 +63,8 @@ D:\Project/
 │   ├── RemoteControl/       Remote control via TCP: keyboard/mouse forwarding
 │   ├── RomCombiner/         ROM concatenation: combine two .rom files into one
 │   ├── RomSeparator/        ROM split: slice combined .rom at configurable boundary
-│   └── Template/            New-module template (copy + rename)
+│   ├── Template/            New-module template (copy + rename)
+│   └── WebAgent/            HTTP bridge for the Tampermonkey Web Agent (C++ port)
 │
 ├── Debug/                   Test code (not built by default, `make test`)
 │   ├── AutoKey/AutoKeyTest.cpp    65 tests: parser, VK names, INI roundtrip
@@ -73,6 +74,8 @@ D:\Project/
 │   ├── Core/UpdateManagerTest.cpp 29 tests: version ordering, swap rollback, backup cleanup
 │   ├── RemoteControl/ClipboardTest.cpp 32 tests: clipboard image/text sync (text+DIB round-trip, wire pack/unpack)
 │   ├── RemoteControl/DisconnectTest.cpp 54 tests: dead-peer timeouts, epoch generations, Stop latency
+│   ├── RemoteControl/DiagnosticsTest.cpp 35 tests: diagnostics/health probes
+│   ├── WebAgent/WebAgentTest.cpp   63 tests: URL decode, router, static, full command protocol
 │   └── UI/GuiTest.cpp             E2E GUI test (no Makefile target, manual compile)
 │
 ├── Translation/             Generated merged locale (Translation/zh-TW.ini)

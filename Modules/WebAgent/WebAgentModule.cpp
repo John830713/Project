@@ -63,7 +63,7 @@ void WebAgentModule::SaveConfig() {
 
 void WebAgentModule::ApplyConfig() {
     // ApplyConfig runs once at startup and again after the settings dialog.
-    // Restart the server so a changed port/host/root/root takes effect. Keep a
+    // Restart the server so a changed port/host/root takes effect. Keep a
     // manually-started server alive even if AutoStart is off.
     bool wasRunning = ServerRunning();
     StopServer();

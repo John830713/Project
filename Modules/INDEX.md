@@ -17,6 +17,7 @@ See [resources/reference/modules-overview.md](../resources/reference/modules-ove
 | [RomCombiner/](RomCombiner/INDEX.md) | ROM file combiner |
 | [RomSeparator/](RomSeparator/INDEX.md) | ROM file separator |
 | [Template/](Template/INDEX.md) | Skeleton reference for new modules |
+| [WebAgent/](WebAgent/INDEX.md) | HTTP bridge for the Tampermonkey Web Agent |
 
 ## Referenced by
 

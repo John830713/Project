@@ -26,25 +26,26 @@ Exceptions:
 - **AutoKey**: Uses `AutoKeyParser` + `AutoKeyDialog` instead of Logic+Window
 - **Checksum**: Minimal — just Module + trivial Window (MessageBox wrapper)
 - **RemoteControl**: Uses Module + Hook + Window + Types (hook is a specialized subsystem)
+- **WebAgent**: Uses Module + HttpServer + Api + Types (no Logic/Window; the HTTP surface is the UI)
 
 ## Dependency Matrix
 
-| Core/Service | AutoKey | ChangeEC | Checksum | RemoteControl | Release_Package | RomCombiner | RomSeparator | Template |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `IFeatureModule.h` | H | H | H | H | H | H | H | H |
-| `IDropActionProvider.h` | -- | H | H | H | -- | H | H | H |
-| `ConfigTypes.h` | H | H | -- | H | H | H | --* | H |
-| `IHostContext.h` | -- | H** | -- | -- | -- | H** | -- | H** |
-| `IDebugStateProvider.h` | H† | -- | -- | -- | -- | -- | -- | -- |
-| `ConfigManager.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `Logger.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `DebugConsole.h` | cpp | -- | -- | -- | -- | -- | -- | -- |
-| `TranslationService.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
-| `FileService.h` | -- | cpp | -- | -- | -- | cpp | cpp | -- |
-| `ChecksumService.h` | -- | -- | cpp | -- | -- | -- | -- | -- |
-| `ClipboardService.h` | -- | -- | cpp | -- | -- | -- | -- | -- |
-| `NetworkService.h` | -- | -- | -- | cpp | -- | -- | -- | -- |
-| `FileTransferService.h` | -- | -- | -- | H+cpp | -- | -- | -- | -- |
+| Core/Service | AutoKey | ChangeEC | Checksum | RemoteControl | Release_Package | RomCombiner | RomSeparator | Template | WebAgent |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `IFeatureModule.h` | H | H | H | H | H | H | H | H | H |
+| `IDropActionProvider.h` | -- | H | H | H | -- | H | H | H | -- |
+| `ConfigTypes.h` | H | H | -- | H | H | H | --* | H | H |
+| `IHostContext.h` | -- | H** | -- | -- | -- | H** | -- | H** | -- |
+| `IDebugStateProvider.h` | H | -- | -- | -- | -- | -- | -- | -- | -- |
+| `ConfigManager.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `Logger.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `DebugConsole.h` | cpp | -- | -- | -- | -- | -- | -- | -- | -- |
+| `TranslationService.h` | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp | cpp |
+| `FileService.h` | -- | cpp | -- | -- | -- | cpp | cpp | -- | -- |
+| `ChecksumService.h` | -- | -- | cpp | -- | -- | -- | -- | -- | -- |
+| `ClipboardService.h` | -- | -- | cpp | -- | -- | -- | -- | -- | -- |
+| `NetworkService.h` | -- | -- | -- | cpp | -- | -- | -- | -- | cpp |
+| `FileTransferService.h` | -- | -- | -- | H+cpp | -- | -- | -- | -- | -- |
 
 **Legend:** H = `.h` include, cpp = `.cpp` only, † = conditional, \* = transitive, \*\* = in Window.h
 
@@ -67,6 +68,7 @@ Used by all modules:
 | RomCombiner | Yes | Yes | No | No |
 | RomSeparator | Yes | Yes | No | No |
 | Template | Yes | Yes | No | No |
+| WebAgent | Yes | No | No | Yes (auto-start toggle) |
 
 ## Cross-Module Dependencies
 
