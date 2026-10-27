@@ -68,7 +68,10 @@ public:
         return m_items;
     }
     
-    void ExecuteContextMenuItem(int itemId) override {}
+    void ExecuteContextMenuItem(int itemId) override { lastItemId = itemId; ++execCount; }
+
+    mutable int lastItemId = -1;
+    mutable int execCount = 0;
 
 private:
     const wchar_t* m_name;
@@ -153,6 +156,38 @@ void TestExecuteDispatch() {
     CHECK(!result3, "execute out of range returns false");
 }
 
+//--- Test: group item ids are the global ids hosts dispatch with ---
+void TestGroupItemIdsMatchDispatch() {
+    printf("\n=== Group item ids match dispatch ===\n");
+    ModuleManager mgr;
+
+    // Module-local ids deliberately do not start at 0: the hosts must use the
+    // group's global id, not the module's own numbering.
+    auto* mod1 = new TestModule(L"Mod1");
+    mod1->AddContextMenuItem(10, L"Item1");
+    mod1->AddContextMenuItem(11, L"Item2");
+    mgr.RegisterModule(mod1);
+
+    auto* mod2 = new TestModule(L"Mod2");
+    mod2->AddContextMenuItem(20, L"Item3");
+    mgr.RegisterModule(mod2);
+
+    auto groups = mgr.GetMenuGroups();
+    CHECK_EQ((int)groups.size(), 2, "two groups");
+    CHECK_EQ(groups[0].items[0].itemId, 0, "first group item 0 is global id 0");
+    CHECK_EQ(groups[0].items[1].itemId, 1, "first group item 1 is global id 1");
+    CHECK_EQ(groups[1].items[0].itemId, 2, "second group item is global id 2");
+
+    // This is what TrayHost / MainWindow do: BASE + item.itemId, then subtract
+    // the BASE again before dispatch.
+    const int trayBase = 12100;
+    int cmd = trayBase + groups[1].items[0].itemId;
+    CHECK(mgr.ExecuteContextMenuItem(cmd - trayBase), "second group item dispatches");
+    CHECK_EQ(mod2->lastItemId, 20, "dispatch keeps the module-local id");
+    CHECK_EQ(mod2->execCount, 1, "exactly one dispatch to the second module");
+    CHECK_EQ(mod1->execCount, 0, "first module untouched");
+}
+
 //--- Test: empty module names are handled ---
 void TestEmptyModuleName() {
     printf("\n=== Empty module name ===\n");
@@ -172,6 +207,7 @@ int main() {
     TestSingleModuleOneItem();
     TestSequentialUniqueIds();
     TestExecuteDispatch();
+    TestGroupItemIdsMatchDispatch();
     TestEmptyModuleName();
     
     printf("\n=== Results: %d tests, %d failures ===\n", g_tests, g_fails);

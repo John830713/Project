@@ -239,7 +239,9 @@ void TrayHost::ShowMenu(HWND hwnd, POINT pt) {
     if (!groups.empty()) {
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
 
-        int runningBase = ID_TRAY_MODULE_BASE;
+        // group.items[].itemId is already the global unique id assigned by
+        // ModuleManager::GetMenuGroups() (the same index ExecuteContextMenuItem
+        // takes), so do NOT add a per-group offset on top of it.
         for (const auto& group : groups) {
             HMENU hSub = CreatePopupMenu();
             if (!hSub) {
@@ -254,13 +256,12 @@ void TrayHost::ShowMenu(HWND hwnd, POINT pt) {
                     flags |= MF_CHECKED;
                 }
                 AppendMenuW(hSub, flags,
-                            static_cast<UINT_PTR>(runningBase + item.itemId),
+                            static_cast<UINT_PTR>(ID_TRAY_MODULE_BASE + item.itemId),
                             item.label.c_str());
             }
             AppendMenuW(hMenu, MF_POPUP,
                         reinterpret_cast<UINT_PTR>(hSub),
                         group.displayName.c_str());
-            runningBase += static_cast<int>(group.items.size());
         }
     }
 
