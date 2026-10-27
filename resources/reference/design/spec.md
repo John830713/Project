@@ -456,7 +456,7 @@ see [debugging-guide.md](debugging-guide.md) §1 and [crash-silent-exit-playbook
 | `mod <name> config` | Dump all config keys |
 | `mod <name> log [n]` | Last n lines of module log |
 | `mod <name> cmd <id>` | Execute context menu item by original ID |
-| `log <category> [n]` | Last n lines of arbitrary log |
+| `log <category> [n]` | Last n lines of a log; `Log_<category>.txt` first, then `<category>.txt` |
 | `status` | Window position, size, topmost, module count |
 | `tray <status\|show\|hide\|reset\|killwindow>` | Inspect / drive the tray + pet window (see §12) |
 | `clear` | Clear console |
@@ -480,7 +480,15 @@ cannot type into the `AllocConsole` window.
   thread is wedged.
 - `DBG()` mirrors its text into a capture buffer while
   `DebugConsoleBeginCapture()` / `DebugConsoleEndCapture()` bracket a
-  request, so the caller sees exactly what the console prints.
+  request, so the caller sees exactly what the console prints. Output printed
+  without the `[DBG] ` prefix (log dumps) goes through
+  `DebugConsoleCaptureAppend()` so it reaches the caller too.
+- `quit` over the pipe answers first: the request records `quitAfterResponse`
+  and the pipe thread posts `WM_QUIT` only after the reply is flushed, so the
+  client never loses the answer to a shutdown.
+- Log files are UTF-8 (`Logger::AppendLine`); `ReadLogLastLines` reads bytes and
+  converts with `MultiByteToWideChar(CP_UTF8)`. Do not switch it back to
+  `std::wifstream` — that widens each byte and garbles CJK text.
 - The server keeps a fresh listening instance ready before serving the
   current client (canonical multi-instance pattern) and uses
   `PeekNamedPipe` before `ReadFile`, so a client that connects then aborts
@@ -501,7 +509,7 @@ The host pointer lets tray commands reach `HostApp` state
 
 ### Test infrastructure
 
-- **8 test targets** built via `make test` (not included in `make all`)
+- **9 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
