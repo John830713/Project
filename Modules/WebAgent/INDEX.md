@@ -1,9 +1,9 @@
 # WebAgent
 
-HTTP bridge to the Tampermonkey Web Agent. The C++ port of the Flask
-`server.py` that served `D:\Tampermonkey`: browsers keep running the same
-`agent/core.js` + station modules, unchanged, and talk to this server instead
-of Python.
+HTTP bridge to the Tampermonkey Web Agent. A C++ replacement for the Flask
+`server.py` that used to serve `D:\Tampermonkey` (now removed): browsers keep
+running the same `agent/core.js` + station modules, unchanged, and talk to this
+server instead of Python.
 
 ## Files
 
@@ -76,15 +76,16 @@ Served on `BindHost:Port` with `Access-Control-Allow-Origin: *`.
 | GET | `/hidden` · POST · DELETE | Hidden-selector list persisted under `.agent/browser/` |
 | GET/POST | `/dump` | Element dump + base64 screenshot extraction |
 | GET | `/tasks` · POST `/task/stop` · POST `/task/<name>` | Task-engine stubs (deferred) |
-| GET | `/agent.core.js`, `/loader-core.js`, `/universal.loader.user.js`, `/agent.user.js`, `/agent.loader.user.js` | JS surface, paths mirror Flask |
+| GET | `/agent.core.js`, `/universal.loader.user.js` | Only the JS surface the loader fetches (legacy `/loader-core.js`, `/agent.user.js`, `/agent.loader.user.js` were dropped with the Python path) |
 | GET | `/modules` | `modules.json` with per-script `@version` injected |
 | GET | `/serve/<name>` | Module script by name |
 | GET | `/` , `/dashboard` | Self-contained control panel |
 
 ### Protocol parity
 
-Deliberately mirrors `D:\Tampermonkey\resources\tools\local\server.py` so the
-existing userscripts and `send_cmd.py` work without edits:
+Deliberately mirrors the retired Python server (`server.py`, removed from
+`D:\Tampermonkey`) so the existing userscripts and `send_cmd.py` work without
+edits:
 
 - Commands are delivered with `tagged` and `poll_ms`; the `/poll` body report is
   merged into the ring before delivery.

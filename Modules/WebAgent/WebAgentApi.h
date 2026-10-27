@@ -2,10 +2,11 @@
 // WebAgentApi.h - Route handlers for the Web Agent HTTP surface
 // Purpose:   Owns the shared server state (sessions, command queue, reports)
 //            and registers every route onto an HttpServer. The JSON shapes are
-//            kept byte-compatible with the original Python Flask server so the
+//            kept byte-compatible with the retired Python Flask server so the
 //            existing Tampermonkey core.js / modules need no changes.
 //
-// Protocol source of truth: D:\Tampermonkey\resources\tools\local\server.py
+// Protocol source of truth: Modules/WebAgent/INDEX.md (the Python reference
+// implementation under D:\Tampermonkey has been removed).
 //==============================================================================
 
 #pragma once

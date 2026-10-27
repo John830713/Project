@@ -799,12 +799,12 @@ Everything else is discovered via the INDEX chain.
 
 ### Purpose
 
-A C++ port of the Python Flask server (`D:\Tampermonkey\resources\tools\local\server.py`) that the Tampermonkey userscripts talk to. The split is deliberate:
+A C++ replacement for the Python Flask server (`D:\Tampermonkey\resources\tools\local\server.py`, since removed) that the Tampermonkey userscripts talk to. The split is deliberate:
 
 - **Framework** (HTTP server, routing, session/queue state, config, dashboard) lives in `D:\Project`.
-- **Scripts and resources** (`agent/*.js`, `modules/*.js`, `modules.json`, `loader-core.js`) stay in `D:\Tampermonkey`, served from `ResourceRoot`.
+- **Scripts and resources** (`agent/*.js`, `modules/*.js`, `modules.json`) stay in `D:\Tampermonkey`, served from `ResourceRoot`.
 
-The browser side is untouched: `agent/core.js` still POSTs `/hello`, long-polls `/poll`, and reports results, so existing station modules and `send_cmd.py` keep working. Python is expected to be removed from `D:\Tampermonkey` eventually.
+The browser side is untouched: `agent/core.js` still POSTs `/hello`, long-polls `/poll`, and reports results, so existing station modules and `send_cmd.py` keep working. Python has been removed from `D:\Tampermonkey`; only the JS assets remain.
 
 ### Ownership & lifecycle
 
@@ -846,7 +846,7 @@ Mirrors `server.py` semantics (verified by the protocol tests):
 
 ### Static surface
 
-Fixed paths mirror Flask exactly (`/agent.core.js` → `agent/core.js`, `/loader-core.js` → `resources/tools/loader-core.js`, etc.). `/modules` parses `modules.json` with nlohmann `json` and injects a `version` field by reading the first 2 KB of each script for `@version`. `/serve/<name>` searches `ResourceRoot` then `ResourceRoot/modules`; `PathIsSafe` rejects `..`, absolute paths, and drive letters. Core scripts get `Cache-Control: no-cache` and a trailing newline for byte-parity.
+Static paths mirror what the loader fetches (`/agent.core.js` → `agent/core.js`, `/universal.loader.user.js` → `agent/universal.loader.user.js`); the legacy `/loader-core.js`, `/agent.user.js` and `/agent.loader.user.js` routes were dropped together with the Python tree. `/modules` parses `modules.json` with nlohmann `json` and injects a `version` field by reading the first 2 KB of each script for `@version`. `/serve/<name>` searches `ResourceRoot` then `ResourceRoot/modules`; `PathIsSafe` rejects `..`, absolute paths, and drive letters. Core scripts get `Cache-Control: no-cache` and a trailing newline for byte-parity.
 
 ### Dashboard
 

@@ -1,8 +1,8 @@
 //==============================================================================
 // WebAgentApi.cpp - Route handlers for the Web Agent HTTP surface
 //
-// The JSON request/response shapes here are deliberately identical to the
-// original Python Flask server (D:\Tampermonkey\resources\tools\local\server.py)
+// The JSON request/response shapes here deliberately match the retired Python
+// Flask server (D:\Tampermonkey\resources\tools\local\server.py, since removed)
 // so the existing browser core.js and station modules need no changes.
 //==============================================================================
 
@@ -167,21 +167,12 @@ void WebAgentApi::RegisterRoutes(HttpServer& server) {
     server.AddRoute("GET", "/dump", [this](const HttpRequest& r) { return HandleDump(r); });
     server.AddRoute("POST", "/dump", [this](const HttpRequest& r) { return HandleDump(r); });
 
-    //--- Static JS surface (paths mirror the Flask server) ---
+    //--- Static JS surface (only the assets the loader actually fetches) ---
     server.AddRoute("GET", "/agent.core.js", [this](const HttpRequest&) {
         return HandleServeFile("agent/core.js");
     });
-    server.AddRoute("GET", "/loader-core.js", [this](const HttpRequest&) {
-        return HandleServeFile("resources/tools/local/loader-core.js");
-    });
     server.AddRoute("GET", "/universal.loader.user.js", [this](const HttpRequest&) {
         return HandleServeFile("agent/universal.loader.user.js");
-    });
-    server.AddRoute("GET", "/agent.user.js", [this](const HttpRequest&) {
-        return HandleServeFile("agent/standalone.user.js");
-    });
-    server.AddRoute("GET", "/agent.loader.user.js", [this](const HttpRequest&) {
-        return HandleServeFile("agent/loader.user.js");
     });
     server.AddRoute("GET", "/modules", [this](const HttpRequest&) {
         return HandleModulesJson();
