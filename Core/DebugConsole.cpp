@@ -186,7 +186,8 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
         DBG(L"Modules registered: %zu", modules.size());
         for (size_t i = 0; i < modules.size(); ++i) {
             auto* mod = modules[i];
-            DBG(L"  [%zu] %s - %s", i, mod->GetModuleName(), mod->GetDisplayName());
+            DBG(L"  [%zu] %s - %s%s", i, mod->GetModuleName(), mod->GetDisplayName(),
+                mod->IsAvailable() ? L"" : L" [unavailable: hidden from menus/settings]");
         }
 
     } else if (command == L"mod") {

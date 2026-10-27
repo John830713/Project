@@ -60,6 +60,16 @@ public:
     virtual const wchar_t* GetVersion() const { return L"1.0.0"; }
     virtual const wchar_t* GetPurpose() const { return L""; }
 
+    //--- Availability ---
+    // Override when the module has nothing to offer on this machine (missing
+    // external resource tree, unsupported hardware, ...). The host then hides
+    // every entry point that would operate it — context menu group and settings
+    // tab — so the machine looks like the module was never shipped.
+    // This is NOT the same as `Enabled`: a disabled module still shows its
+    // settings so the user can switch it back on; an unavailable one has no
+    // working setting to show.
+    virtual bool IsAvailable() const { return true; }
+
     //--- Context menu (optional, override to provide right-click items) ---
     virtual std::vector<ContextMenuItem> GetContextMenuItems() const { return {}; }
     virtual void ExecuteContextMenuItem(int /*itemId*/) {}

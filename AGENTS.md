@@ -25,7 +25,7 @@ Navigation: [INDEX.md](INDEX.md) is the directory chain; [resources/reference/pr
 - `mingw32-make SHELL=cmd.exe test` builds **and runs** 9 EXEs (not part of `make all`). `SHELL=cmd.exe` is mandatory — the `test`/`clean` recipes use `for %%t`/`del`, so plain make runs MSYS sh and dies with `syntax error near unexpected token '('` (or silently skips the clean).
 - New tests under `Debug/` are **not auto-discovered**: add a hardcoded Makefile rule, append the exe to `TEST_TARGETS`, and add it to `resources/tools/local/run-tests.ps1`. Tests compile real sources as units — keep Console/DBG behaviour out of what they link.
 - A `DEBUG_CONSOLE` build exposes an AI-drivable pipe `\\.\pipe\ProjectDebug`: one UTF-16LE command line per connection, returns the captured `DBG()` output, same commands as the console (`status`, `modules`, `mod <name> config`, `log <category>`, `tray status|show|hide|reset|killwindow`, `quit`). Use it to inspect a running app instead of guessing. `quit` over the pipe returns its reply before the app exits.
-- WebAgent serves the browser bridge over HTTP (default `0.0.0.0:8921`; `/status`, `/dashboard`). It stays inert when `ResourceRoot` (`D:\Tampermonkey`) is missing.
+- WebAgent serves the browser bridge over HTTP (default `0.0.0.0:8921`; `/status`, `/dashboard`). It stays inert when `ResourceRoot` (`D:\Tampermonkey`) is missing: no listener, and `IsAvailable()` hides its menu group and settings tab, so machines without the JS tree look like the module was never shipped.
 - No crash reporter: read `design/debugging-guide.md` and the silent-exit / hang playbooks before chasing a crash.
 
 ## Codegen, translations, icon

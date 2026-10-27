@@ -34,6 +34,10 @@ Project-wide shared infrastructure. All upper layers depend on this.
 - Mapping stored in `m_menuRoutes` (`vector<pair<module*, originalItemId>>`)
 - `ExecuteContextMenuItem(int uniqueId)` indexes `m_menuRoutes` in O(1)
 - Modules must `Tr()` their context menu labels before returning items
+- `IsAvailable()` (default `true`) is the "this module has nothing to offer on
+  this machine" switch — override it when an external resource is missing.
+  Unavailable modules are skipped by `GetContextMenuItems()`/`GetMenuGroups()`
+  and by `SettingsDialog`, so they leave no menu entry and no settings tab.
 
 ## Custom Settings UI
 

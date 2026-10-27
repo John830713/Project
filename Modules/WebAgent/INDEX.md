@@ -26,7 +26,7 @@ server instead of Python.
 | `AutoStart` | `1` | Start on launch / after settings apply |
 | `Port` | `8921` | Listen port (matches `send_cmd.py`'s default) |
 | `BindHost` | `0.0.0.0` | Bind address |
-| `ResourceRoot` | `D:\Tampermonkey` | Root of the JS assets (`agent/`, `modules/`) |
+| `ResourceRoot` | `D:\Tampermonkey` | Root of the JS assets (`agent/`, `modules/`); missing ⇒ the module hides itself entirely |
 | `ShowConsole` | `0` | Reserved (per-server console not implemented) |
 
 `ApplyConfig()` runs once at startup and after the settings dialog: it always
@@ -37,14 +37,28 @@ keeps a manually-started server alive when `AutoStart` is off. `AgentDir` is
 ### Machines without the resource root
 
 `ResourceRoot` is the folder that holds the browser-side scripts (normally
-`D:\Tampermonkey`). When it does not exist:
+`D:\Tampermonkey`). When it does not exist the machine must look as if WebAgent
+was never shipped, so `WebAgentModule::IsAvailable()` returns false and:
 
 - `StartServer()` refuses and logs `StartServer skipped: resource root not found
   (<path>).` — no listener, no port conflict.
-- `GetContextMenuItems()` returns nothing, so neither the tray nor the pet
-  `Function` submenu grows a `Tampermonkey Web Agent` group. Menus are rebuilt
-  on every open, so creating the folder later makes the group appear without a
-  restart.
+- `ModuleManager` skips unavailable modules in `GetContextMenuItems()` /
+  `GetMenuGroups()`, so neither the tray nor the pet `Function` submenu grows a
+  `Tampermonkey Web Agent` group. `GetContextMenuItems()` itself also returns
+  nothing, so the check holds even if a new host forgets to filter.
+- `SettingsDialog` drops unavailable modules, so there is no settings tab for a
+  module that cannot run here.
+- `debug console` → `modules` marks it `[unavailable: hidden from menus/settings]`.
+
+The check is `std::filesystem::is_directory()`, re-evaluated on every call: menus
+and the settings dialog are rebuilt on open, so creating the folder later makes
+everything appear without a restart. An **empty** folder counts as available —
+the server starts and every asset 404s — so deploy `agent/` + `modules/`, not
+just the directory.
+
+To run the assets from another location, point `ResourceRoot` at it by hand in
+`Config/Config_WebAgent.ini` (the settings tab only appears once that path
+exists) and restart `Project.exe`.
 
 ### Context menu
 

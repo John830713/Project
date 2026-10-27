@@ -27,7 +27,11 @@ namespace {
 SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
     : m_hwnd(nullptr), m_parent(parent), m_moduleManager(moduleManager),
       m_hTab(nullptr), m_currentTab(-1), m_scrollPos(0), m_hFont(nullptr) {
+    // Unavailable modules (e.g. WebAgent without its resource root) are skipped
+    // so a machine that never had the external assets shows no dead settings tab.
     m_modules = m_moduleManager->GetAllModules();
+    m_modules.erase(std::remove_if(m_modules.begin(), m_modules.end(),
+        [](const IFeatureModule* mod) { return !mod->IsAvailable(); }), m_modules.end());
     m_editedValues.resize(m_modules.size());
     for (size_t i = 0; i < m_modules.size(); ++i) {
         auto* mod = m_modules[i];

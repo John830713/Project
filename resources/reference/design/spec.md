@@ -818,10 +818,13 @@ The browser side is untouched: `agent/core.js` still POSTs `/hello`, long-polls 
 `Shutdown()` stops the server and saves config. The module owns `std::unique_ptr<HttpServer>` and `std::unique_ptr<WebAgentApi>`; `WebAgentApi::RegisterRoutes` is called before `Start`.
 
 `StartServer()` also refuses when `ResourceRoot` is not an existing directory —
-machines that never installed the browser-side scripts get no listener and,
-because `GetContextMenuItems()` returns empty, no Web Agent group in the tray or
-the pet `Function` menu. Menus are rebuilt on every open, so creating the folder
-later is enough to bring the group (and the toggle) back.
+machines that never installed the browser-side scripts get no listener. Such a
+machine must look like WebAgent was never shipped, so the module overrides
+`IFeatureModule::IsAvailable()` (default `true`) with `ResourceRootAvailable()`;
+`ModuleManager` skips unavailable modules when building context menus and
+`SettingsDialog` drops them, so no tray/menu group and no settings tab appear.
+The check is re-evaluated on every UI build, so creating the folder later is
+enough to bring the group (and the toggle) back without a restart.
 
 ### Threading model
 

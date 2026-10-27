@@ -49,6 +49,12 @@ public:
     std::wstring GetValue(const std::wstring& key) const override;
     void SetValue(const std::wstring& key, const std::wstring& value) override;
 
+    //--- Availability ---
+    // No ResourceRoot means the JS tree was never deployed here: hide the
+    // module from menus and settings entirely instead of offering controls
+    // that cannot work. Machines that do have the tree are unaffected.
+    bool IsAvailable() const override { return ResourceRootAvailable(); }
+
     //--- Context menu (toggle server on/off) ---
     std::vector<ContextMenuItem> GetContextMenuItems() const override;
     void ExecuteContextMenuItem(int itemId) override;

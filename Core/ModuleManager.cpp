@@ -128,6 +128,7 @@ std::vector<ContextMenuItem> ModuleManager::GetContextMenuItems() const {
     int uniqueId = 0;
 
     for (auto* module : sorted) {
+        if (!module->IsAvailable()) continue;
         std::vector<ContextMenuItem> items = module->GetContextMenuItems();
         for (const auto& item : items) {
             result.push_back({ uniqueId, item.label, item.flags });
@@ -153,6 +154,7 @@ std::vector<ModuleManager::ModuleMenuGroup> ModuleManager::GetMenuGroups() const
     int uniqueId = 0;
 
     for (auto* module : sorted) {
+        if (!module->IsAvailable()) continue;
         auto items = module->GetContextMenuItems();
         if (!items.empty()) {
             ModuleMenuGroup group;
