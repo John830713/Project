@@ -172,7 +172,7 @@ void WebAgentApi::RegisterRoutes(HttpServer& server) {
         return HandleServeFile("agent/core.js");
     });
     server.AddRoute("GET", "/loader-core.js", [this](const HttpRequest&) {
-        return HandleServeFile("resources/tools/loader-core.js");
+        return HandleServeFile("resources/tools/local/loader-core.js");
     });
     server.AddRoute("GET", "/universal.loader.user.js", [this](const HttpRequest&) {
         return HandleServeFile("agent/universal.loader.user.js");
