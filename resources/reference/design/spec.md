@@ -769,15 +769,18 @@ All detailed information lives in the INDEX chain (`resources/reference/`, `D:\A
 
 - Do NOT duplicate content from INDEX chain docs into `AGENTS.md`
 - Do NOT add build commands, module details, or conventions that already exist in reference docs
-- Do NOT expand `AGENTS.md` beyond ~15 lines
+- Do NOT expand `AGENTS.md` beyond ~40 lines — it is loaded into every session, so length costs context
 
 ### What belongs in `AGENTS.md`
 
-Only information that helps an agent **start** navigating:
+Only information that helps an agent **start** navigating, plus facts that are
+expensive to rediscover and easy to get wrong:
 
 - Project identity (one line)
 - Entry point for INDEX chain (`INDEX.md`)
 - Key reference paths for common tasks (build, architecture)
+- Hard-won gotchas: toolchain paths, codegen side effects, ID/mapping contracts,
+  shell requirements — stated once, tersely, with a pointer to the deep doc
 
 Everything else is discovered via the INDEX chain.
 

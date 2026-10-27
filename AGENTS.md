@@ -2,61 +2,38 @@
 
 Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++. No CI, no package manager.
 
-Read [INDEX.md](INDEX.md) and [resources/reference/project-layout.md](resources/reference/project-layout.md) first for the directory map and architecture (`main.cpp → HostApp → ModuleManager → IFeatureModule`).
+Navigation: [INDEX.md](INDEX.md) is the directory chain; [resources/reference/project-layout.md](resources/reference/project-layout.md) is the map;
+[resources/reference/design/spec.md](resources/reference/design/spec.md) is the architecture (§1 modules, §4 build, §9 debug/tests, §12 tray, §14 WebAgent).
 
 ## Build (cmd.exe, not bash)
 
-- **`Build.bat`** — one-click: `make clean` → `py Build.py` → `mingw32-make`. Finds make via `MakePath.txt`, then PATH, then `C:\msys64\*`. **Pauses at the end**; use the manual sequence for scripts/CI.
-- **`Build.bat -debug`** (or `debug`) / **`make debug`** — debug build with `-DDEBUG_CONSOLE=1` (AllocConsole + DBG traces → `debug_log.txt`).
-- **`Build.bat trim`** — build + `make trim`; note the Makefile has **no `trim` target**, the failure is ignored.
-- Manual equivalent: `make clean; py Build.py; make`.
-- `make` auto-runs `py Build.py` **only if `GeneratedBuild.mk` or `Translation/zh-TW.ini` is missing** — after adding/removing any `.cpp`/`.rc`/module run `py Build.py` explicitly first.
-- `make distclean` — removes all `Generated*` + `Translation/zh-TW.ini` (forces full regen).
-- Makefile uses **`cmd.exe` syntax** (`@for %%t in ...`, `del`) — no POSIX shell constructs.
-- Requires `py` (Python launcher) on PATH; converting a `.png`/`.jpg` root icon → `.ico` additionally needs Pillow (`py -m pip install pillow`) — otherwise build continues without icon.
+- `Build.bat` = `make clean` → `py Build.py` → make, then **pauses**. `Build.bat debug` / `make debug` adds `-DDEBUG_CONSOLE=1`.
+- `mingw32-make` is **not on PATH** — the toolchain is the path in `MakePath.txt` (`D:\Program Files\MSYS2Portable\App\msys64\ucrt64\bin`); prepend it to `PATH` or let `Build.bat` do it.
+- `make` re-runs `py Build.py` **only** when `GeneratedBuild.mk` or `Translation/zh-TW.ini` is missing → run `py Build.py` yourself after adding/removing any `.cpp`/`.rc`/module.
+- `Build.py` compiles only `main.cpp`, `HostApp.cpp`, `GeneratedModuleRegistry.cpp` at root, plus **non-recursive** `*.cpp` in `Core|Services|UI|Pet|Tray`; module sources come from the manifest. A new root file or subdirectory is silently ignored.
+- Every `py Build.py` rewrites `GeneratedVersion.rc` with a timestamp version (`YYYY.MMDD.HHMM.SS*100+seq`) — each build is "newer", which is what drives the in-place update/relaunch. Never hand-edit it.
+- The link fails with `Permission denied` while `Project.exe` runs — stop it first. `make distclean` wipes all `Generated*` + `Translation/zh-TW.ini`. There is **no `trim` target** (Build.bat ignores that failure).
 
-## Module system
+## Modules
 
-- Each feature lives in `Modules/<Name>/` with a `<Name>.module.ini` manifest:
-  ```ini
-  [Module]
-  Name=AutoKey
-  Class=AutoKeyModule
-  Sources=AutoKeyParser.cpp,AutoKeyModule.cpp,AutoKeyDialog.cpp
-  Headers=AutoKeyModule.h,AutoKeyDialog.h
-  Resources=
-  Libraries=
-  Enabled=1
-  ConfigFile=Config_AutoKey.ini
-  LogFile=Log_AutoKey.txt
-  ```
-- List values accept `,` or `;` separators. `Enabled=0` excludes from build without deleting files.
-- The generated registry includes `Modules/<Name>/<Name>Module.h`, where `<Name>` is the manifest's `Name` value — so **`Name` must equal the directory name** and the main class header must be named `<Name>Module.h`. `Class` must match the C++ class (defaults to `<Name>Module`). A wrong `Name`/`Class` only breaks when the generated registry compiles, after `py Build.py`.
-- New module: copy `Modules/Template/`, rename files/class, then `py Build.py`.
-- Per-module runtime config/log use the manifest's `ConfigFile`/`LogFile` names (files in `Config/`, `Log/`).
+- `Modules/<Name>/<Name>.module.ini`: `Name` must equal the directory name and the main header must be `<Name>Module.h`; `Class` defaults to `<Name>Module`. A mismatch only surfaces when the generated registry compiles, after `py Build.py`.
+- New module: copy `Modules/Template/`, rename files/class, then `py Build.py`. `Enabled=0` excludes it without deleting files. Manifest fields: spec.md §1.
+- Runtime config/log use the manifest's `ConfigFile`/`LogFile` (files under `Config/`, `Log/`).
 
-## Tray shell
+## Tests & debug
 
-- `Tray/TrayHost` (message-only window + `Shell_NotifyIcon`). Architecture, menu/ID layout, visibility persistence, and the in-process watchdog live in [resources/reference/design/spec.md](resources/reference/design/spec.md) §13 and [Tray/INDEX.md](Tray/INDEX.md).
-- Main-thread limit (pet window, tray window and message loop share the main thread) is documented there too — the in-process watchdog only rebuilds a *destroyed* window, not a wedged thread.
+- `mingw32-make SHELL=cmd.exe test` builds **and runs** 9 EXEs (not part of `make all`). `SHELL=cmd.exe` is mandatory — the `test`/`clean` recipes use `for %%t`/`del`, so plain make runs MSYS sh and dies with `syntax error near unexpected token '('` (or silently skips the clean).
+- New tests under `Debug/` are **not auto-discovered**: add a hardcoded Makefile rule, append the exe to `TEST_TARGETS`, and add it to `resources/tools/local/run-tests.ps1`. Tests compile real sources as units — keep Console/DBG behaviour out of what they link.
+- A `DEBUG_CONSOLE` build exposes an AI-drivable pipe `\\.\pipe\ProjectDebug`: one UTF-16LE command line per connection, returns the captured `DBG()` output, same commands as the console (`status`, `modules`, `mod <name> config`, `tray status|show|hide|reset|killwindow`, `quit`). Use it to inspect a running app instead of guessing.
+- WebAgent serves the browser bridge over HTTP (default `0.0.0.0:8921`; `/status`, `/dashboard`). It stays inert when `ResourceRoot` (`D:\Tampermonkey`) is missing.
+- No crash reporter: read `design/debugging-guide.md` and the silent-exit / hang playbooks before chasing a crash.
 
+## Codegen, translations, icon
 
-## Tests
-
-- `mingw32-make SHELL=cmd.exe test` — builds **and runs** 9 EXEs: `Debug/{AutoKey/AutoKeyTest,UI/TooltipTest,Core/DebugStateTest,Core/MenuOrderTest,Core/UpdateManagerTest,RemoteControl/ClipboardTest,RemoteControl/DisconnectTest,RemoteControl/DiagnosticsTest,WebAgent/WebAgentTest}.exe`. Not built by `make all`. **`SHELL=cmd.exe` is required** — the `test`/`clean` recipes use cmd.exe syntax (`for %%t in ...`, `del`), so plain `mingw32-make` runs the MSYS `sh` and dies with `syntax error near unexpected token '('` (this fails from cmd.exe too, not just PowerShell); `clean` otherwise silently no-ops. `resources/tools/local/run-tests.ps1` wraps it.
-- Test flags: `-O0 -g -DENABLE_DEBUG_STATE=1`; linked `-luser32 -lkernel32`, plus per-target extras: Tooltip `-lcomctl32`, UpdateManager `-lversion -lgdi32`, Clipboard `-lgdi32`, Disconnect `-lws2_32 -lole32 -luuid`, Diagnostics `-lws2_32`, WebAgent `-lws2_32`; **no GDI+**.
-- Tests compile real sources as units: `Core/ModuleManager.cpp` (MenuOrderTest/DebugStateTest), `Core/UpdateManager.cpp` (UpdateManagerTest), `RemoteControlHook.cpp` (ClipboardTest), `Services/NetworkService.cpp` (+ `FileTransferService.cpp` for DisconnectTest, NetworkService only for DiagnosticsTest/WebAgentTest), `Modules/WebAgent/*.cpp` (WebAgentTest) — keep Console/DBG behaviors out of code you want unit-testable.
-- `Debug/UI/GuiTest.cpp` (E2E GUI) has **no Makefile target** — compile manually if needed.
-- New test files under `Debug/` are **not auto-discovered**: each target is a hardcoded Makefile rule listing its own sources and extra `-l` libs. Copy the existing pattern (`$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) [extra libs]`) and add the exe to `TEST_TARGETS`.
-
-## Codegen & translation
-
-- `py Build.py` scans root + `Core/|Services/|UI/|Pet/|Tray/` + enabled module `.cpp`/`.rc` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored.
-- Icon resource: `Build.py` writes `GeneratedIcon.rc` as `#include "Core/ResourceIds.h"` + `IDI_APP_ICON ICON ...`, so `Core/ResourceIds.h` is the single definition of `IDI_APP_ICON` for both the RC (windres) and C++ (tray icon load). Edit that header, not the generated `.rc`.
-- Translations: `Translation/_src/<lang>.ini` + `Pet/lang/<lang>.ini` + `Modules/*/lang/<lang>.ini` merged (later sources override) → `Translation/<lang>.ini` (**UTF-16 LE with BOM**), embedded via `TranslationRes.rc` as RCDATA (lang code → resource name, e.g. `zh-TW` → `ZH_TW`). Read at runtime with `Tr(L"Section", L"Key")`.
-- **English strings in the code ARE the translation keys**: `Tr()` returns the passed text verbatim when `lang=en` or the key is missing. Add/modify UI text in English first, then zh-TW; `Translation/en.ini` is a manual English reference that is never loaded at runtime (only `_src/` is merged, only zh-TW is embedded).
-- Icon gotcha: `Build.py` picks the **first alphabetically** image at project root, scanned from `.png/.ico/.jpg/.jpeg/.bmp` (case-insensitive), ignoring `Pet.png` and `GeneratedIcon.*` — dropping a stray image at root silently changes the app icon. `Test.png` is the intended icon source.
+- `py Build.py` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`, `GeneratedVersion.*`, `Translation/<lang>.ini`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored — never edit them.
+- **English strings in the code ARE the translation keys**: `Tr()` returns the text verbatim for `lang=en` or a missing key. Edit English first, then `_src/zh-TW.ini` (or `Pet/lang/`, `Modules/*/lang/`); it merges into UTF-16 LE + BOM and is embedded via `TranslationRes.rc`. `Translation/en.ini` is reference-only and never loaded.
+- Icon: `Build.py` takes the **first alphabetically** root image (`.png/.ico/.jpg/.jpeg/.bmp`, ignoring `Pet.png`/`GeneratedIcon.*`) — a stray image silently changes the app icon; `Test.png` is intended. `IDI_APP_ICON` is defined once in `Core/ResourceIds.h`, not in the generated `.rc`.
 
 ## Config files (gitignored, user-local)
 
-- `Config/*.ini`, `MakePath.txt` (make path for `Build.bat`), `ProjectName.txt`/`TargetName.txt` (exe name for `Build.py`; `.exe` appended if missing), `HostHint.txt`, `Version.txt`, `Log/`.
+`Config/*.ini`, `Log/`, `MakePath.txt`, `ProjectName.txt`/`TargetName.txt` (exe name), `HostHint.txt`, `Version.txt`.
