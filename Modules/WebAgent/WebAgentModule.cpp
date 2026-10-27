@@ -11,6 +11,8 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <filesystem>
+
 WebAgentModule::WebAgentModule() {
     InitializeDefinitions();
     InitializeDefaults();
@@ -119,9 +121,20 @@ int WebAgentModule::GetIntValue(const std::wstring& key, int defaultValue) const
 // Server control
 //==============================================================================
 
+bool WebAgentModule::ResourceRootAvailable() const {
+    std::error_code ec;
+    const std::filesystem::path root(GetValue(L"ResourceRoot"));
+    return !root.empty() && std::filesystem::is_directory(root, ec);
+}
+
 bool WebAgentModule::StartServer() {
     if (!GetBoolValue(L"Enabled", true)) {
         Logger::WriteModuleLog(GetLogSourceName(), L"StartServer skipped: module disabled.");
+        return false;
+    }
+    if (!ResourceRootAvailable()) {
+        Logger::WriteModuleLog(GetLogSourceName(),
+            L"StartServer skipped: resource root not found (" + GetValue(L"ResourceRoot") + L").");
         return false;
     }
     if (ServerRunning()) {
@@ -171,7 +184,9 @@ void WebAgentModule::StopServer() {
 //==============================================================================
 
 std::vector<ContextMenuItem> WebAgentModule::GetContextMenuItems() const {
-    if (!GetBoolValue(L"Enabled", true)) {
+    // No resource root means the browser-side scripts were never installed on
+    // this machine: hide the whole group instead of offering a dead switch.
+    if (!GetBoolValue(L"Enabled", true) || !ResourceRootAvailable()) {
         return {};
     }
     std::vector<ContextMenuItem> items;
@@ -181,6 +196,14 @@ std::vector<ContextMenuItem> WebAgentModule::GetContextMenuItems() const {
         ? TranslationService::Get()->Tr(L"WebAgent", L"Stop Web Agent")
         : TranslationService::Get()->Tr(L"WebAgent", L"Start Web Agent");
     items.push_back(toggle);
+
+    ContextMenuItem restart;
+    restart.itemId = kWebAgentRestartServer;
+    restart.label = TranslationService::Get()->Tr(L"WebAgent", L"Restart Web Agent");
+    if (!ServerRunning()) {
+        restart.flags |= kContextMenuItemDisabled;
+    }
+    items.push_back(restart);
 
     ContextMenuItem dash;
     dash.itemId = kWebAgentOpenDashboard;
@@ -199,6 +222,14 @@ void WebAgentModule::ExecuteContextMenuItem(int itemId) {
             Logger::WriteModuleLog(GetLogSourceName(), L"Web Agent stopped via menu.");
         } else {
             StartServer();
+        }
+        return;
+    }
+
+    if (itemId == kWebAgentRestartServer) {
+        StopServer();
+        if (StartServer()) {
+            Logger::WriteModuleLog(GetLogSourceName(), L"Web Agent restarted via menu.");
         }
         return;
     }

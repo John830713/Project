@@ -63,6 +63,10 @@ private:
     void StopServer();
     bool ServerRunning() const { return m_server && m_server->IsRunning(); }
 
+    // Machines that never installed the browser-side scripts have no resource
+    // root. They get no Web Agent menu entry and no listener.
+    bool ResourceRootAvailable() const;
+
     IHostContext* m_host = nullptr;
     std::vector<ConfigFieldDefinition> m_definitions;
     std::map<std::wstring, std::wstring> m_values;
@@ -74,3 +78,4 @@ private:
 // Context menu command IDs (local to this module).
 constexpr int kWebAgentToggleServer = 1;
 constexpr int kWebAgentOpenDashboard = 2;
+constexpr int kWebAgentRestartServer = 3;

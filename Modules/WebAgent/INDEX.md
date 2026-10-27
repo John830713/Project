@@ -10,7 +10,7 @@ of Python.
 | File | Role |
 |------|------|
 | `WebAgent.module.ini` | Manifest: class `WebAgentModule`, links `ws2_32` |
-| `WebAgentModule.h/cpp` | `IFeatureModule`: config, start/stop, auto-start, context menu |
+| `WebAgentModule.h/cpp` | `IFeatureModule`: config, start/stop/restart, auto-start, context menu |
 | `HttpServer.h/cpp` | Minimal HTTP/1.1 server: listener thread, exact + prefix routes, CORS |
 | `WebAgentApi.h/cpp` | All endpoints + session/queue/report state, static JS, dashboard |
 | `WebAgentTypes.h/cpp` | `HttpRequest`/`HttpResponse` value types, URL decode |
@@ -33,6 +33,27 @@ of Python.
 stops then restarts the server so a changed port/host/root takes effect, and
 keeps a manually-started server alive when `AutoStart` is off. `AgentDir` is
 `ResourceRoot\.agent` (dumps, hidden selectors).
+
+### Machines without the resource root
+
+`ResourceRoot` is the folder that holds the browser-side scripts (normally
+`D:\Tampermonkey`). When it does not exist:
+
+- `StartServer()` refuses and logs `StartServer skipped: resource root not found
+  (<path>).` — no listener, no port conflict.
+- `GetContextMenuItems()` returns nothing, so neither the tray nor the pet
+  `Function` submenu grows a `Tampermonkey Web Agent` group. Menus are rebuilt
+  on every open, so creating the folder later makes the group appear without a
+  restart.
+
+### Context menu
+
+| Item | Behaviour |
+|------|-----------|
+| `Start Web Agent` / `Stop Web Agent` | Toggles the listener; label follows `ServerRunning()` |
+| `Restart Web Agent` | `StopServer()` + `StartServer()`, greyed out while stopped |
+| `Open Dashboard` | Opens `http://localhost:<port>/dashboard`, greyed out while stopped |
+
 
 ## Endpoints
 
