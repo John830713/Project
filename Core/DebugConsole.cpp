@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <fstream>
+#include <filesystem>
 #include <cstdlib>
 #include <cwchar>
 
@@ -30,8 +31,19 @@ std::wstring DebugConsoleEndCapture() {
     return DbgCaptureBuffer();
 }
 
+void DebugConsoleCaptureAppend(const wchar_t* text) {
+    if (!text || !*text || !DbgCaptureActive()) return;
+    DbgCaptureBuffer() += text;
+}
+
 static DWORD s_mainThreadId = 0;
 static HostApp* s_appHost = nullptr;
+
+// Set by RunConsoleCommand("quit") while a pipe command is being served; the
+// pipe thread posts WM_QUIT only after the reply has been flushed, otherwise
+// the app could exit before the caller reads its answer.
+static bool s_servingPipeRequest = false;
+static bool s_quitAfterServe = false;
 
 void DebugConsoleSetHost(HostApp* host) {
     s_appHost = host;
@@ -87,17 +99,56 @@ static IFeatureModule* FindModuleByName(ModuleManager* modMgr, const std::wstrin
     return nullptr;
 }
 
+static std::wstring Utf8ToWide(const std::string& s) {
+    if (s.empty()) return std::wstring();
+    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), nullptr, 0);
+    if (n <= 0) return std::wstring();
+    std::wstring out(static_cast<size_t>(n), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.data(), static_cast<int>(s.size()), &out[0], n);
+    return out;
+}
+
+// Log files are written as UTF-8 (Logger::AppendLine) and end with "\n", so read
+// bytes and convert. std::wifstream would widen each byte and garble CJK text.
 static std::vector<std::wstring> ReadLogLastLines(const std::wstring& filePath, int n) {
     std::vector<std::wstring> lines;
-    std::wifstream file(filePath.c_str());
+    std::ifstream file(std::filesystem::path(filePath), std::ios::binary);
     if (!file.is_open()) return lines;
-    std::wstring line;
+    std::string line;
+    bool firstLine = true;
     while (std::getline(file, line)) {
-        lines.push_back(line);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (firstLine) {
+            firstLine = false;
+            // Tolerate a BOM in case a tool rewrote the file.
+            if (line.size() >= 3 &&
+                static_cast<unsigned char>(line[0]) == 0xEF &&
+                static_cast<unsigned char>(line[1]) == 0xBB &&
+                static_cast<unsigned char>(line[2]) == 0xBF) {
+                line.erase(0, 3);
+            }
+        }
+        lines.push_back(Utf8ToWide(line));
     }
     if (static_cast<int>(lines.size()) > n)
         lines.erase(lines.begin(), lines.begin() + (lines.size() - n));
     return lines;
+}
+
+// Log lines are printed without the "[DBG] " prefix; mirror them into the capture
+// buffer so pipe callers see the same text as a human at the console.
+static void PrintLogLine(const std::wstring& line) {
+    wprintf(L"%s\n", line.c_str());
+    std::wstring withNewline = line + L'\n';
+    DebugConsoleCaptureAppend(withNewline.c_str());
+}
+
+// Module logs live in Log/Log_<name>.txt; core logs in Log/<category>.txt.
+static std::wstring ResolveLogPath(const std::wstring& category) {
+    std::error_code ec;
+    std::wstring modulePath = L"Log/Log_" + category + L".txt";
+    if (std::filesystem::exists(std::filesystem::path(modulePath), ec)) return modulePath;
+    return L"Log/" + category + L".txt";
 }
 
 void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd, HINSTANCE) {
@@ -192,7 +243,7 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
                 } else {
                     DBG(L"--- Last %zu lines of %s ---", lines.size(), logPath.c_str());
                     for (const auto& line : lines) {
-                        wprintf(L"%s\n", line.c_str());
+                        PrintLogLine(line);
                     }
                     fflush(stdout);
                 }
@@ -215,14 +266,14 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
         int n = nstr.empty() ? 20 : _wtoi(nstr.c_str());
         if (n <= 0) n = 20;
 
-        std::wstring logPath = L"Log/" + category + L".txt";
+        std::wstring logPath = ResolveLogPath(category);
         auto lines = ReadLogLastLines(logPath, n);
         if (lines.empty()) {
             DBG(L"No log entries for '%s'.", category.c_str());
         } else {
             DBG(L"--- Last %zu lines of %s ---", lines.size(), logPath.c_str());
             for (const auto& line : lines) {
-                wprintf(L"%s\n", line.c_str());
+                PrintLogLine(line);
             }
             fflush(stdout);
         }
@@ -266,6 +317,16 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
             csbi.dwSize.X * csbi.dwSize.Y, topLeft, &written);
         SetConsoleCursorPosition(hConsole, topLeft);
 
+    } else if (command == L"quit" || command == L"exit") {
+        // Over the pipe the app must stay alive long enough to answer; the
+        // pipe thread posts WM_QUIT once the response is flushed.
+        DBG(L"Shutting down...");
+        if (s_servingPipeRequest) {
+            s_quitAfterServe = true;
+        } else {
+            PostQuitMessage(0);
+        }
+
     } else if (command == L"status") {
         DBG(L"=== Application Status ===");
         if (hMainWnd && IsWindow(hMainWnd)) {
@@ -305,6 +366,7 @@ constexpr wchar_t kPipeName[] = L"\\\\.\\pipe\\ProjectDebug";
 struct PipeRequest {
     std::wstring command;
     std::wstring response;
+    bool quitAfterResponse;
     HANDLE doneEvent;
 };
 
@@ -314,21 +376,30 @@ constexpr DWORD kPipeServeTimeoutMs = 15000;
 
 }  // namespace
 
-static std::wstring RunConsoleCommandCaptured(const std::wstring& cmd) {
+static std::wstring RunConsoleCommandCaptured(const std::wstring& cmd,
+                                             ModuleManager* modMgr,
+                                             HWND hMainWnd,
+                                             HINSTANCE hInst) {
     DebugConsoleBeginCapture();
+    s_quitAfterServe = false;
     // RunConsoleCommand takes a mutable buffer; pass a copy.
     std::vector<wchar_t> buf(cmd.begin(), cmd.end());
     buf.push_back(L'\0');
-    RunConsoleCommand(buf.data(), nullptr, nullptr, nullptr);
+    RunConsoleCommand(buf.data(), modMgr, hMainWnd, hInst);
     return DebugConsoleEndCapture();
 }
 
 // Main-thread handler for a pipe command. Runs the command (with capture) and
 // signals the waiting pipe thread. Returns the response via req->response.
-void DebugConsoleServePipeRequest(void* requestPtr) {
+void DebugConsoleServePipeRequest(void* requestPtr, ModuleManager* modMgr,
+                                  HWND hMainWnd, HINSTANCE hInst) {
     auto* req = static_cast<PipeRequest*>(requestPtr);
     if (!req) return;
-    req->response = RunConsoleCommandCaptured(req->command);
+    s_servingPipeRequest = true;
+    req->response = RunConsoleCommandCaptured(req->command, modMgr, hMainWnd, hInst);
+    s_servingPipeRequest = false;
+    req->quitAfterResponse = s_quitAfterServe;
+    s_quitAfterServe = false;
     SetEvent(req->doneEvent);
 }
 
@@ -399,9 +470,11 @@ static DWORD WINAPI PipeServerThread(LPVOID) {
         }
 
         std::wstring response = L"[pipe] empty command\n";
+        bool quitNow = false;
         if (!cmd.empty()) {
             PipeRequest req;
             req.command = cmd;
+            req.quitAfterResponse = false;
             req.doneEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
             if (!PostThreadMessageW(s_mainThreadId, WM_APP_CONSOLE_PIPE_CMD, 0,
@@ -412,6 +485,7 @@ static DWORD WINAPI PipeServerThread(LPVOID) {
                 response = (wr == WAIT_TIMEOUT)
                            ? L"[pipe] command timed out\n"
                            : req.response;
+                quitNow = (wr != WAIT_TIMEOUT) && req.quitAfterResponse;
             }
             CloseHandle(req.doneEvent);
         }
@@ -423,6 +497,12 @@ static DWORD WINAPI PipeServerThread(LPVOID) {
         FlushFileBuffers(hPipe);
         DisconnectNamedPipe(hPipe);
         CloseHandle(hPipe);
+
+        if (quitNow) {
+            // Reply is on the wire; now tear the app down.
+            PostThreadMessageW(s_mainThreadId, WM_QUIT, 0, 0);
+            return 0;
+        }
     }
     return 0;
 }

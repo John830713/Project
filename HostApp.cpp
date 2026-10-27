@@ -133,7 +133,8 @@ int HostApp::Run() {
         if (msg.hwnd == nullptr && msg.message == WM_APP_CONSOLE_PIPE_CMD) {
             // Runs on the main thread because RunConsoleCommand/tray commands
             // touch main-thread-owned windows. Signals the pipe thread.
-            DebugConsoleServePipeRequest(reinterpret_cast<void*>(msg.lParam));
+            DebugConsoleServePipeRequest(reinterpret_cast<void*>(msg.lParam),
+                                         &m_moduleManager, m_mainWindow, m_hInstance);
             continue;
         }
 #endif
@@ -154,12 +155,19 @@ int HostApp::Run() {
     }
 
 #if DEBUG_CONSOLE
+    // Shutdown markers: if the app "silently" stops responding on exit, the last
+    // marker printed here names the step that hung.
+    DBG(L"[shutdown] message loop exited");
     StopPipeServer();
+    DBG(L"[shutdown] pipe server stopped");
     StopConsoleReader(hConsoleReader);
+    DBG(L"[shutdown] console reader stopped");
 #endif
 
     m_trayHost.Shutdown();
+    DBG(L"[shutdown] tray stopped");
     m_moduleManager.ShutdownAllModules();
+    DBG(L"[shutdown] modules stopped");
     timeEndPeriod(1);
     Logger::Write(L"Main", L"Host application shutdown completed.");
     return (fetched == 0) ? static_cast<int>(msg.wParam) : 1;

@@ -73,13 +73,20 @@ void DebugConsoleSetHost(HostApp* host);
 void StartPipeServer();
 void StopPipeServer();
 
-// Called by the main thread when WM_APP_CONSOLE_PIPE_CMD arrives.
-void DebugConsoleServePipeRequest(void* requestPtr);
+// Called by the main thread when WM_APP_CONSOLE_PIPE_CMD arrives. The caller
+// passes the live HostApp context so pipe commands see the same module manager
+// and window as commands typed into the AllocConsole window.
+void DebugConsoleServePipeRequest(void* requestPtr, ModuleManager* modMgr,
+                                  HWND hMainWnd, HINSTANCE hInst);
 
 // Response capture used by the pipe server; DBG() appends here while a pipe
 // command is being served so the caller sees the same text the console prints.
 void DebugConsoleBeginCapture();
 std::wstring DebugConsoleEndCapture();
+
+// For output that must not carry the "[DBG] " prefix (log dumps): print as usual
+// and mirror the text into the capture buffer when a pipe command is running.
+void DebugConsoleCaptureAppend(const wchar_t* text);
 
 #else  // DEBUG_CONSOLE == 0
 #define DBG(fmt, ...) ((void)0)
@@ -99,10 +106,11 @@ inline void   RunConsoleCommand(const wchar_t*, ModuleManager*, HWND, HINSTANCE)
 inline void DebugConsoleSetHost(HostApp*) {}
 inline void StartPipeServer() {}
 inline void StopPipeServer() {}
-inline void DebugConsoleServePipeRequest(void*) {}
+inline void DebugConsoleServePipeRequest(void*, ModuleManager*, HWND, HINSTANCE) {}
 
 #include <string>
 inline void DebugConsoleBeginCapture() {}
 inline std::wstring DebugConsoleEndCapture() { return L""; }
+inline void DebugConsoleCaptureAppend(const wchar_t*) {}
 
 #endif
