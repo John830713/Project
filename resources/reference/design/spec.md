@@ -806,6 +806,12 @@ The browser side is untouched: `agent/core.js` still POSTs `/hello`, long-polls 
 
 `Shutdown()` stops the server and saves config. The module owns `std::unique_ptr<HttpServer>` and `std::unique_ptr<WebAgentApi>`; `WebAgentApi::RegisterRoutes` is called before `Start`.
 
+`StartServer()` also refuses when `ResourceRoot` is not an existing directory —
+machines that never installed the browser-side scripts get no listener and,
+because `GetContextMenuItems()` returns empty, no Web Agent group in the tray or
+the pet `Function` menu. Menus are rebuilt on every open, so creating the folder
+later is enough to bring the group (and the toggle) back.
+
 ### Threading model
 
 `HttpServer` spawns **one** listener thread. Connections are accepted and handled **inline** with `Connection: close`; there is no worker pool. `Stop()` closes the listen socket to unblock `accept` and joins the thread (a slow in-flight client can delay this by up to the 5 s recv timeout). `WebAgentApi` guards all mutable state with one mutex; handlers lock briefly around session/queue/report access.
@@ -848,6 +854,8 @@ Live verification was done against the real `Project.exe` and the real `D:\Tampe
 ### Gotchas
 
 - `winsock2.h` **must** precede `windows.h`. `WebAgentModule.h` includes `HttpServer.h` first intentionally.
+- A missing `ResourceRoot` intentionally hides the menu group (`GetContextMenuItems()` returns empty) — do not "fix" that by always showing the toggle; the settings dialog is where the path gets corrected.
+- The tray/pet hosts render module items as `BASE + item.itemId`; `ModuleMenuGroup::items[].itemId` is already the global unique id, so adding a per-group offset double-counts and silently dispatches nothing (or the wrong module).
 - Avoid `s_host`, `s_addr`, `s_net`, `s_imp`, `s_lh`, `s_impno` as identifiers — `inaddr.h` defines them as macros.
 - `Logger::WriteModuleLog` takes a wide source name (`kLogSource` is `const wchar_t*`).
 - Rebuilding requires stopping a running `Project.exe` first (`Permission denied` on link).
