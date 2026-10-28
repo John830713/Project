@@ -470,8 +470,8 @@ void SettingsDialog::SetupTabs(HWND hwnd) {
     SendMessageW(m_hTab, TCM_INSERTITEM, 0, (LPARAM)&tie);
 
     for (size_t i = 0; i < m_modules.size(); ++i) {
-        std::wstring modLabel = TranslationService::Get()->Tr(
-            L"TabLabels", m_modules[i]->GetDisplayName());
+        std::wstring modLabel =
+            TranslationService::Get()->TrModuleLabel(m_modules[i]->GetDisplayName());
         tie.pszText = const_cast<wchar_t*>(modLabel.c_str());
         SendMessageW(m_hTab, TCM_INSERTITEM, (WPARAM)(i + 1), (LPARAM)&tie);
     }

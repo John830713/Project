@@ -147,6 +147,10 @@ std::wstring TranslationService::Tr(const std::wstring& section, const std::wstr
     return keyIt->second;
 }
 
+std::wstring TranslationService::TrModuleLabel(const std::wstring& displayName) const {
+    return Tr(L"TabLabels", displayName);
+}
+
 std::vector<std::wstring> TranslationService::GetAvailableLanguages() const {
     std::vector<std::wstring> langs;
     langs.push_back(L"en");

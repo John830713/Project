@@ -259,9 +259,14 @@ void TrayHost::ShowMenu(HWND hwnd, POINT pt) {
                             static_cast<UINT_PTR>(ID_TRAY_MODULE_BASE + item.itemId),
                             item.label.c_str());
             }
+            // The group title is a module display name (an English translation
+            // key), not text from the [Tray] section: without the [TabLabels]
+            // lookup the tray submenu stays English in a translated UI.
+            std::wstring groupLabel =
+                TranslationService::Get()->TrModuleLabel(group.displayName);
             AppendMenuW(hMenu, MF_POPUP,
                         reinterpret_cast<UINT_PTR>(hSub),
-                        group.displayName.c_str());
+                        groupLabel.c_str());
         }
     }
 

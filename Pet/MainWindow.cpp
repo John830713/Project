@@ -2285,10 +2285,12 @@ void MainWindow::ShowAboutDialog(HWND hwnd) {
 
     if (m_moduleManager) {
         for (auto* module : m_moduleManager->GetAllModules()) {
-            text += std::wstring(L"\n") + module->GetDisplayName() + L" v" + module->GetVersion() + L"\n";
+            text += std::wstring(L"\n") +
+                TranslationService::Get()->TrModuleLabel(module->GetDisplayName()) +
+                L" v" + module->GetVersion() + L"\n";
             const wchar_t* purpose = module->GetPurpose();
             if (purpose && *purpose)
-                text += std::wstring(L"  ") + purpose + L"\n";
+                text += std::wstring(L"  ") + Tr(L"About", purpose) + L"\n";
         }
     }
 

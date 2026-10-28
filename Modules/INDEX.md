@@ -6,6 +6,19 @@ Feature plugins, each implementing `IFeatureModule`. Auto-discovered at build ti
 
 See [resources/reference/modules-overview.md](../resources/reference/modules-overview.md) for the shared module system reference (interfaces, patterns, dependency matrix).
 
+## Translations
+
+Every module can ship `lang/zh-TW.ini`; `py Build.py` merges `Translation/_src/`,
+`Pet/lang/` and `Modules/*/lang/` into the embedded `Translation/zh-TW.ini`.
+Section conventions (English text in code is always the key):
+
+| Section | Key | Shown as |
+|---------|-----|----------|
+| `[<Module>]` | context menu label | tray / pet menu item |
+| `[Common]` | `ConfigFieldDefinition::label` | settings dialog field label |
+| `[TabLabels]` | `GetDisplayName()` | settings tab **and tray submenu title** — required, looked up via `TranslationService::TrModuleLabel()` |
+| `[About]` | `GetPurpose()` | About dialog description |
+
 ## Forward links
 
 | Path | Description |

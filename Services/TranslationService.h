@@ -10,6 +10,11 @@ public:
 
     bool Load(const std::wstring& langCode);
     std::wstring Tr(const std::wstring& section, const std::wstring& text) const;
+
+    // Module display names are hard-coded English keys; every UI surface that
+    // shows one (tray/tray groups, settings tabs, About) must go through this
+    // instead of GetDisplayName() directly, or it stays English.
+    std::wstring TrModuleLabel(const std::wstring& displayName) const;
     std::vector<std::wstring> GetAvailableLanguages() const;
     std::wstring GetCurrentLanguage() const { return m_currentLang; }
     bool SetLanguage(const std::wstring& langCode);

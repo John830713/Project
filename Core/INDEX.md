@@ -34,6 +34,11 @@ Project-wide shared infrastructure. All upper layers depend on this.
 - Mapping stored in `m_menuRoutes` (`vector<pair<module*, originalItemId>>`)
 - `ExecuteContextMenuItem(int uniqueId)` indexes `m_menuRoutes` in O(1)
 - Modules must `Tr()` their context menu labels before returning items
+- `GetDisplayName()` is a hard-coded English key, not display text: any surface
+  that shows a module name (tray submenu title, settings tab, About) must call
+  `TranslationService::TrModuleLabel()`, which looks the name up in the merged
+  `[TabLabels]` section. Using `GetDisplayName()` directly renders English in a
+  translated UI. Every `Modules/*/lang/zh-TW.ini` needs a `[TabLabels]` entry.
 - `IsAvailable()` (default `true`) is the "this module has nothing to offer on
   this machine" switch — override it when an external resource is missing.
   Unavailable modules are skipped by `GetContextMenuItems()`/`GetMenuGroups()`
