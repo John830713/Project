@@ -38,9 +38,14 @@ public:
     // recreated, so the icon keeps pointing at a live window.
     void OnPetWindowRecreated(HWND newWindow);
 
+    // Re-read the translated tooltip text (language change). Called through
+    // IHostContext::RefreshTrayTooltip().
+    void UpdateTooltip();
+
     //--- State for the debug channel ---
     bool IsIconAdded() const { return m_iconAdded; }
     unsigned long GetWatchdogTicks() const { return m_watchdogTicks; }
+    const std::wstring& GetTooltipText() const { return m_tooltipText; }
 
 private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -51,7 +56,6 @@ private:
     void ShowMenu(HWND hwnd, POINT pt);
     void OnCommand(UINT cmd);
     void OnWatchdogTick();
-    void UpdateTooltip();
 
     static std::wstring Tr(const wchar_t* text);
 
@@ -60,5 +64,6 @@ private:
     HICON m_icon;
     bool m_iconAdded;
     bool m_shuttingDown;
+    std::wstring m_tooltipText;
     unsigned long m_watchdogTicks = 0;
 };

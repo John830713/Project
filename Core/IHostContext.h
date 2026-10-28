@@ -16,4 +16,9 @@ public:
     virtual HINSTANCE GetInstance() const = 0;
     virtual HWND GetMainWindow() const = 0;
     virtual TranslationService* GetTranslationService() const = 0;
+
+    // Host chrome that shows translated text but is not a child window (the
+    // tray tooltip) has to be told to re-read it after the language changes.
+    // Default no-op so minimal hosts and test doubles need no change.
+    virtual void RefreshTrayTooltip() {}
 };

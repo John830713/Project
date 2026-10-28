@@ -715,6 +715,18 @@ pet stays hidden across a window rebuild; `RecreateMainWindow` passes
    `Create(wasVisible ? SW_SHOW : SW_HIDE)`.
 4. `m_trayHost.OnPetWindowRecreated()` refreshes the tooltip.
 
+### Language changes
+
+The tray menu is rebuilt on every open, so it follows a language change for
+free. The tooltip is not: it is pushed to the shell once, and the window title
+is resolved at creation. `MainWindow::ReloadPetConfig()` (reached through
+`WM_APP_RELOAD_PETCONFIG` after the settings dialog writes `Config_Pet.ini`)
+therefore reloads the translation, re-resolves the default window title (a
+title set by `ProjectName.txt` is kept verbatim) and calls
+`IHostContext::RefreshTrayTooltip()`, which `HostApp` forwards to
+`TrayHost::UpdateTooltip()`. Nothing else has to be notified: module labels and
+settings tabs are written out of `Tr()` / `TrModuleLabel()` when built.
+
 `MainWindow` exposes `SetRecreating(bool)` for the flag and a public
 `OpenSettings(HWND)` so the tray can reach Settings while the pet is hidden
 (no context menu is available then).
@@ -741,7 +753,7 @@ subsystem over the named-pipe server:
 
 | Command | Effect |
 |---------|--------|
-| `tray status` | Icon-added flag, pet window alive/visible, watchdog tick count |
+| `tray status` | Icon-added flag, pet window alive/visible, watchdog tick count, current tooltip text |
 | `tray show` / `tray hide` | `SetMainWindowVisible` (hides/shows + persists the flag) |
 | `tray reset` | `RecreateMainWindow()` |
 | `tray killwindow` | Destroy the pet window without recreating, to exercise the watchdog |

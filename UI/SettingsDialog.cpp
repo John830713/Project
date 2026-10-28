@@ -901,6 +901,8 @@ void SettingsDialog::OnSave(HWND hwnd) {
         petData.language = (it != m_petEditedValues.end()) ? it->second : L"en";
     }
     PetConfig::Save(petData);
+    // MainWindow::ReloadPetConfig() reloads the translation, re-resolves the
+    // window title and asks the host to refresh the tray tooltip.
     SendMessageW(m_parent, WM_APP + 3, 0, 0);
 
     for (size_t i = 0; i < m_modules.size(); ++i) {

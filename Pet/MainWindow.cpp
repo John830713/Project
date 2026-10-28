@@ -3,6 +3,7 @@
 #include "../UI/SettingsDialog.h"
 #include "../UI/MenuOrderDialog.h"
 #include "../Core/ModuleManager.h"
+#include "../Core/IHostContext.h"
 #include "../Core/DropTypes.h"
 #include <cstdlib>
 #include "../Core/InputManager.h"
@@ -291,6 +292,9 @@ bool MainWindow::Create(
     TranslationService::Get()->Load(petCfg.language);
 
     m_windowTitle = windowTitle.empty() ? TranslationService::Get()->Tr(L"Pet", L"Desktop Pet") : windowTitle;
+    // Only a configured title is fixed; the default one follows the language
+    // and is re-resolved in ReloadPetConfig().
+    m_windowTitleIsCustom = !windowTitle.empty();
     m_hintText = hintText;
     m_appVersion = appVersion.empty() ? L"1.0.0" : appVersion;
     m_appPurpose = appPurpose.empty() ? TranslationService::Get()->Tr(L"Pet", L"Modular desktop pet.") : appPurpose;
@@ -361,6 +365,13 @@ void MainWindow::SavePosition() {
 void MainWindow::ReloadPetConfig() {
     PetConfig::Data cfg = PetConfig::Load();
     TranslationService::Get()->Load(cfg.language);
+    // Everything below re-reads the translated text that was captured at
+    // creation time: the default window title and the tray tooltip.
+    if (!m_windowTitleIsCustom) {
+        m_windowTitle = TranslationService::Get()->Tr(L"Pet", L"Desktop Pet");
+        if (m_hwnd) SetWindowTextW(m_hwnd, m_windowTitle.c_str());
+    }
+    if (m_host) m_host->RefreshTrayTooltip();
     m_currentOpacity = cfg.opacity;
     m_moveEnabled = cfg.moveEnabled;
     m_moveStep = cfg.moveStep;

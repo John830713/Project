@@ -28,6 +28,21 @@ Reset Pet Window        — destroy and rebuild the pet window in-process
 Exit
 ```
 
+Every label is translated at menu-build time (`Tr()` for host items,
+`TrModuleLabel()` for the module submenu titles), so switching language needs
+no extra plumbing here: the menu is rebuilt on each open. The tooltip is pushed
+to the shell only once, see "Language changes" below.
+
+## Language changes
+
+`MainWindow::ReloadPetConfig()` — reached through `WM_APP_RELOAD_PETCONFIG` when
+the settings dialog saves — reloads the translation, re-resolves the default
+window title and calls `IHostContext::RefreshTrayTooltip()`; `HostApp` forwards
+that to `TrayHost::UpdateTooltip()`, which re-reads `[Pet] Desktop Pet` and
+sends `NIM_MODIFY`. A window title configured through `ProjectName.txt` is left
+alone. `tray status` prints the current tooltip text, which is how the refresh
+is verified.
+
 ## Command IDs
 
 The pet window owns `100–111` / `2000+` / `6000+` / `9999`; the tray keeps a
@@ -71,10 +86,11 @@ avoid `WM_APP + 10` (`WM_APP_CONSOLE_CMD`).
 
 A `DEBUG_CONSOLE` build exposes `tray status|show|hide|reset|killwindow` through
 the debug console and the `\\.\pipe\ProjectDebug` server (see `spec.md` §11/§12),
-so an agent can drive and verify this subsystem. `tray killwindow` destroys the
-pet window without recreating it to exercise watchdog recovery; the host pointer
-for these commands is `HostApp::DebugConsoleSetHost` + `StartPipeServer` in
-`HostApp::Run`.
+so an agent can drive and verify this subsystem. `tray status` also prints the
+live tooltip text, the one translated string the shell owns; `tray killwindow`
+destroys the pet window without recreating it to exercise watchdog recovery. The
+host pointer for these commands is `HostApp::DebugConsoleSetHost` +
+`StartPipeServer` in `HostApp::Run`.
 
 ## Verification
 

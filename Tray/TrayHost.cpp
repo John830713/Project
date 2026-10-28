@@ -120,6 +120,7 @@ bool TrayHost::AddIcon() {
         title = L"Desktop Pet";
     }
     wcsncpy_s(nid.szTip, title.c_str(), _TRUNCATE);
+    m_tooltipText = title;
 
     m_iconAdded = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     if (m_iconAdded) {
@@ -155,6 +156,7 @@ void TrayHost::UpdateTooltip() {
     nid.uID = kTrayIconId;
     nid.uFlags = NIF_TIP;
     wcsncpy_s(nid.szTip, title.c_str(), _TRUNCATE);
+    m_tooltipText = title;
     Shell_NotifyIconW(NIM_MODIFY, &nid);
 }
 

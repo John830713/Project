@@ -24,6 +24,7 @@ public:
     HINSTANCE GetInstance() const override;
     HWND GetMainWindow() const override;
     TranslationService* GetTranslationService() const override;
+    void RefreshTrayTooltip() override { m_trayHost.UpdateTooltip(); }
 
     //--- Manager access ---
     ModuleManager& GetModuleManager();
@@ -48,6 +49,7 @@ public:
     //--- Tray state (debug channel) ---
     bool IsTrayIconAdded() const { return m_trayHost.IsIconAdded(); }
     unsigned long GetTrayWatchdogTicks() const { return m_trayHost.GetWatchdogTicks(); }
+    const std::wstring& GetTrayTooltipText() const { return m_trayHost.GetTooltipText(); }
 
 private:
     bool CreateMainWindow(int nCmdShow);

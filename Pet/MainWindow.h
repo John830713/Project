@@ -133,6 +133,7 @@ private:
     ModuleManager* m_moduleManager;
     InputManager* m_inputManager;
     std::wstring m_windowTitle;
+    bool m_windowTitleIsCustom = false;
     std::wstring m_hintText;
     std::wstring m_appVersion;
     std::wstring m_appPurpose;

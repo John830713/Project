@@ -288,6 +288,9 @@ void RunConsoleCommand(const wchar_t* cmd, ModuleManager* modMgr, HWND hMainWnd,
                 s_appHost->IsMainWindowAlive() ? L"alive" : L"MISSING");
             DBG(L"  Main window vis : %s", s_appHost->IsMainWindowVisible() ? L"visible" : L"hidden");
             DBG(L"  Watchdog ticks  : %lu", s_appHost->GetTrayWatchdogTicks());
+            // The tooltip is the one piece of tray chrome whose text is not
+            // rebuilt on demand, so it is where a missed language refresh shows.
+            DBG(L"  Tooltip         : %s", s_appHost->GetTrayTooltipText().c_str());
         } else if (args == L"show") {
             s_appHost->SetMainWindowVisible(true);
             DBG(L"  Tray: pet window shown.");
