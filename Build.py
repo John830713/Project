@@ -1,5 +1,6 @@
 import configparser
 import datetime
+import json
 import re
 import shutil
 import subprocess
@@ -356,7 +357,7 @@ def parse_module_ini(module_ini: Path):
     }
 
 
-def scan_modules():
+def scan_modules(only_modules=None):
     cpp_files = []
     rc_files = []
     libraries = []
@@ -368,6 +369,14 @@ def scan_modules():
     for module_ini in sorted(MODULES_DIR.glob("*/*.module.ini")):
         parsed = parse_module_ini(module_ini)
         if not parsed:
+            continue
+
+        # Build-time flavour filter (BuildUI.py passes --modules). Modules that
+        # are not selected are left out of the registry, the object list and
+        # therefore the exe. This is a separate axis from the manifest
+        # Enabled=0 flag, which stays a global opt-out.
+        if only_modules is not None and parsed["name"] not in only_modules:
+            print_info(f"Skipped module (not selected): {parsed['name']}")
             continue
 
         parsed_modules.append(parsed)
@@ -591,14 +600,73 @@ def generate_translation():
         print_info(f"Generated Translation/{src_file.name} ({len(sources)} source(s))")
 
 
+def list_modules_info():
+    """Machine-readable module inventory for BuildUI.py.
+
+    Unlike scan_modules() this keeps disabled manifests in the list so the tool
+    can show them greyed out instead of silently dropping them.
+    """
+    items = []
+    if not MODULES_DIR.exists():
+        return items
+
+    for module_ini in sorted(MODULES_DIR.glob("*/*.module.ini")):
+        parser = configparser.ConfigParser()
+        parser.optionxform = str
+        try:
+            parser.read(module_ini, encoding="utf-8")
+        except configparser.Error:
+            continue
+        if "Module" not in parser:
+            continue
+
+        sec = parser["Module"]
+        enabled_raw = sec.get("Enabled", "1").strip().lower()
+        sources = [x.strip() for x in sec.get("Sources", "").replace(";", ",").split(",") if x.strip()]
+
+        items.append({
+            "name": sec.get("Name", module_ini.parent.name).strip(),
+            "dir": module_ini.parent.name,
+            "class": sec.get("Class", "").strip(),
+            "enabled": enabled_raw not in ("0", "false", "no", "off"),
+            "sources": sources,
+            "config": sec.get("ConfigFile", "").strip(),
+        })
+
+    return items
+
+
+def normalize_module_filter(value: str):
+    names = [x.strip() for x in value.replace(";", ",").split(",")]
+    return {x for x in names if x}
+
+
 def main():
+    argv = sys.argv[1:]
+
+    if "--list-modules" in argv:
+        print(json.dumps(list_modules_info(), ensure_ascii=False, indent=2))
+        return 0
+
+    only_modules = None
+    if "--modules" in argv:
+        idx = argv.index("--modules")
+        value = argv[idx + 1] if idx + 1 < len(argv) else ""
+        only_modules = normalize_module_filter(value)
+        if not only_modules:
+            print_warn("--modules was empty; building every enabled module.")
+            only_modules = None
+
     print_info(f"Project root: {ROOT}")
 
     if not (ROOT / "Makefile").exists():
         print_error("Makefile not found.")
         return 1
 
-    mod_cpp, mod_rc, mod_libs, parsed_modules = scan_modules()
+    if only_modules is not None:
+        print_info("Module filter: " + ", ".join(sorted(only_modules)))
+
+    mod_cpp, mod_rc, mod_libs, parsed_modules = scan_modules(only_modules)
     generate_module_registry(parsed_modules)
     generate_translation()
 
