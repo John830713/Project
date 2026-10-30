@@ -13,6 +13,7 @@
 | [autokey-analysis.md](autokey-analysis.md) | AutoKey 模組架構分析 |
 | [autokey-class-diagram.txt](autokey-class-diagram.txt) | AutoKey 類別關係圖 |
 | [build-process.md](build-process.md) | 建置流程記錄 |
+| [flavors-buildui.md](flavors-buildui.md) | BuildUI.py — 模組勾選、載體（pet/tray/window）、Flavor 檔與 `--modules` 子集建置 |
 | [modules-overview.md](modules-overview.md) | Module 系統架構總覽 |
 | [modules-autokey.md](modules-autokey.md) | AutoKey 模組詳細參考 |
 | [modules-changeec.md](modules-changeec.md) | ChangeEC — EC firmware patcher (detect, offset, generate) |

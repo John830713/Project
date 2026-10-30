@@ -13,6 +13,8 @@ Navigation: [INDEX.md](INDEX.md) (directory chain) · [resources/reference/proje
 - Every `py Build.py` rewrites `GeneratedVersion.rc` with timestamp version `YYYY.MMDD.HHMM.SS*100+seq` (monotonic, drives in-place update/relaunch). Never hand-edit.
 - Link fails with `Permission denied` if `Project.exe` is running — stop it first.
 - `make distclean` wipes all `Generated*` + `Translation/zh-TW.ini`. There is no `trim` target (`Build.bat trim` errors after a successful build).
+- `py Build.py --modules A,B` builds only those modules (unselected ones are left out of the registry and the object list); `--list-modules` prints the manifest inventory as JSON. Used by `BuildUI.py` (GUI: module checkboxes + carrier + build), see [resources/reference/flavors-buildui.md](resources/reference/flavors-buildui.md).
+- Carriers: `LoaderConfig::Mode {Pet, Tray, Window}` chosen by `Config_Loader.json` `mode` or `Project.exe --carrier <pet|tray|window>`; `--flavor <name>` loads `Config/Config_Flavor_<name>.json` instead. Tray/Window create the pet window hidden (tray + module lifecycle depend on it); Window adds `UI/ModuleLauncherWindow` listing every module context-menu item.
 
 ## Modules
 
