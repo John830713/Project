@@ -47,7 +47,8 @@ static void SetDpiAware() {
     SetProcessDPIAware();
 }
 
-bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config) {
+bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config,
+                         bool startHidden) {
     SetDpiAware();
     timeBeginPeriod(1);
     m_hInstance = hInstance;
@@ -69,7 +70,10 @@ bool HostApp::Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::
     std::wstring appVersion = LoadAppVersion();
 
     bool petVisible = LoadMainWindowVisibility();
-    int windowCmdShow = petVisible ? nCmdShow : SW_HIDE;
+    // startHidden is used by the tray/window flavours: the pet window is
+    // created (tray + module lifecycle depend on the host) but never shown,
+    // and the user's saved pet visibility is left untouched.
+    int windowCmdShow = (startHidden || !petVisible) ? SW_HIDE : nCmdShow;
     if (!CreateMainWindow(windowCmdShow)) {
         Logger::Write(L"Error", L"Failed to create main window.");
         return false;

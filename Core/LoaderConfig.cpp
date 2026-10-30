@@ -27,37 +27,30 @@ std::string ReadQuotedString(const std::string& s, size_t& pos) {
     return result;
 }
 
+// Walk the document one token at a time looking for "key": at object level.
+// The previous version tried to skip values in place and could stall on the
+// opening brace (pos never advanced), which hung the app on any real config
+// file. Every branch here consumes at least one character.
 bool FindKey(const std::string& json, const std::string& key, size_t& outPos) {
     size_t pos = 0;
     while (pos < json.size()) {
-        std::string k = ReadQuotedString(json, pos);
+        if (json[pos] != '"') {
+            pos++;
+            continue;
+        }
+
+        std::string name = ReadQuotedString(json, pos);
         SkipWhitespace(json, pos);
         if (pos < json.size() && json[pos] == ':') {
             pos++;
             SkipWhitespace(json, pos);
-            if (k == key) { outPos = pos; return true; }
-            if (pos < json.size() && json[pos] == '[') {
-                int depth = 1;
-                pos++;
-                while (pos < json.size() && depth > 0) {
-                    if (json[pos] == '[') depth++;
-                    else if (json[pos] == ']') depth--;
-                    else if (json[pos] == '"') { pos++; while (pos < json.size() && json[pos] != '"') { if (json[pos] == '\\') pos++; pos++; } }
-                    pos++;
-                }
-            } else if (json[pos] == '{') {
-                int depth = 1;
-                pos++;
-                while (pos < json.size() && depth > 0) {
-                    if (json[pos] == '{') depth++;
-                    else if (json[pos] == '}') depth--;
-                    else if (json[pos] == '"') { pos++; while (pos < json.size() && json[pos] != '"') { if (json[pos] == '\\') pos++; pos++; } }
-                    pos++;
-                }
-            } else {
-                while (pos < json.size() && json[pos] != ',' && json[pos] != '}' && json[pos] != ']') pos++;
+            if (name == key) {
+                outPos = pos;
+                return true;
             }
+            continue;
         }
+        // A string inside an array (no ':' after it): nothing to do.
     }
     return false;
 }
@@ -73,8 +66,29 @@ std::wstring LoaderConfig::GetExeDir() {
     return dir;
 }
 
-std::wstring LoaderConfig::GetConfigPath() {
-    return ConfigManager::GetConfigDirectory().wstring() + L"\\Config_Loader.json";
+std::wstring LoaderConfig::GetConfigPath(const std::wstring& flavor) {
+    std::wstring fileName = flavor.empty()
+        ? L"Config_Loader.json"
+        : L"Config_Flavor_" + flavor + L".json";
+    return ConfigManager::GetConfigDirectory().wstring() + L"\\" + fileName;
+}
+
+const wchar_t* LoaderConfig::ModeToKey(Mode mode) {
+    switch (mode) {
+        case Mode::Tray:   return L"tray";
+        case Mode::Window: return L"window";
+        case Mode::Pet:
+        default:           return L"pet";
+    }
+}
+
+LoaderConfig::Mode LoaderConfig::ModeFromKey(const std::wstring& key) {
+    if (key == L"tray") return Mode::Tray;
+    if (key == L"window") return Mode::Window;
+    // "clean" was the old placeholder name for a non-pet shell; keep old
+    // configs working by mapping it onto the launcher window.
+    if (key == L"clean") return Mode::Window;
+    return Mode::Pet;
 }
 
 std::vector<std::wstring> LoaderConfig::ScanAvailableModules() {
@@ -103,9 +117,9 @@ std::vector<std::wstring> LoaderConfig::ScanAvailableModules() {
     return modules;
 }
 
-LoaderConfig::Data LoaderConfig::Load() {
+LoaderConfig::Data LoaderConfig::Load(const std::wstring& flavor) {
     Data data;
-    std::wstring path = GetConfigPath();
+    std::wstring path = GetConfigPath(flavor);
     std::ifstream file(path.c_str());
     if (!file.is_open()) {
         DBG(L"LoaderConfig: %s not found, using defaults", path.c_str());
@@ -119,33 +133,39 @@ LoaderConfig::Data LoaderConfig::Load() {
 
     if (FindKey(json, "mode", valuePos)) {
         std::string modeStr = ReadQuotedString(json, valuePos);
-        if (modeStr == "clean") data.mode = Mode::Clean;
+        data.mode = ModeFromKey(std::wstring(modeStr.begin(), modeStr.end()));
     }
 
     if (FindKey(json, "modules", valuePos) && valuePos < json.size() && json[valuePos] == '[') {
         valuePos++;
         while (valuePos < json.size() && json[valuePos] != ']') {
             std::string modName = ReadQuotedString(json, valuePos);
-            if (!modName.empty()) {
-                data.enabledModules.insert(std::wstring(modName.begin(), modName.end()));
+            if (modName.empty()) {
+                // Commas and whitespace between entries: consume exactly one
+                // character so a malformed file can never spin here.
+                valuePos++;
+                continue;
             }
+            data.enabledModules.insert(std::wstring(modName.begin(), modName.end()));
             SkipWhitespace(json, valuePos);
             if (valuePos < json.size() && json[valuePos] == ',') valuePos++;
         }
     }
 
     DBG(L"LoaderConfig: mode=%s modules=%zu",
-        data.mode == Mode::Clean ? L"clean" : L"pet",
+        ModeToKey(data.mode),
         data.enabledModules.size());
 
     return data;
 }
 
-void LoaderConfig::Save(const Data& data) {
+void LoaderConfig::Save(const Data& data, const std::wstring& flavor) {
     std::string content;
     content += "{\n";
     content += "  \"mode\": \"";
-    content += (data.mode == Mode::Clean) ? "clean" : "pet";
+    for (const wchar_t* p = ModeToKey(data.mode); *p; ++p) {
+        content += static_cast<char>(*p);
+    }
     content += "\",\n";
     content += "  \"modules\": [\n";
 
@@ -163,7 +183,7 @@ void LoaderConfig::Save(const Data& data) {
     content += "\n  ]\n";
     content += "}\n";
 
-    std::wstring path = GetConfigPath();
+    std::wstring path = GetConfigPath(flavor);
     std::ofstream file(path.c_str());
     if (file.is_open()) {
         file << content;

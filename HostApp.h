@@ -17,7 +17,8 @@ public:
     HostApp();
     ~HostApp();
 
-    bool Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config);
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, const LoaderConfig::Data& config,
+                    bool startHidden = false);
     int Run();
 
     //--- IHostContext ---

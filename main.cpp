@@ -3,6 +3,7 @@
 //==============================================================================
 
 #include "HostApp.h"
+#include "UI/ModuleLauncherWindow.h"
 #include "Core/ConfigManager.h"
 #include "Core/Logger.h"
 #include "Core/LoaderConfig.h"
@@ -15,6 +16,8 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <cwchar>
+#include <memory>
 #include <string>
 
 //==============================================================================
@@ -120,6 +123,46 @@ void TerminateHandler() {
     std::abort();
 }
 
+//------------------------------------------------------------------------------
+// Command line helpers
+//
+// wWinMain receives the tail of the command line, not an argv vector, and the
+// only flags we support are simple "--name value" pairs, so a tiny parser keeps
+// this dependency-free. BuildUI.py launches flavours with
+//   Project.exe --flavor <name> [--carrier pet|tray|window]
+//------------------------------------------------------------------------------
+
+std::wstring GetArgValue(const wchar_t* cmdLine, const wchar_t* flag) {
+    if (!cmdLine || !flag) {
+        return {};
+    }
+    const size_t flagLen = wcslen(flag);
+    const wchar_t* p = cmdLine;
+    while ((p = wcsstr(p, flag)) != nullptr) {
+        // Only accept the flag when it starts a token, so "foo--carrier"
+        // inside another value cannot match.
+        const bool atTokenStart = (p == cmdLine) || (p[-1] == L' ' || p[-1] == L'\t');
+        const wchar_t* after = p + flagLen;
+        if (atTokenStart && (*after == L' ' || *after == L'\t' || *after == L'\0')) {
+            while (*after == L' ' || *after == L'\t') {
+                ++after;
+            }
+            if (*after == L'"') {
+                ++after;
+                const wchar_t* end = wcschr(after, L'"');
+                return end ? std::wstring(after, end) : std::wstring(after);
+            }
+            const wchar_t* end = after;
+            while (*end && *end != L' ' && *end != L'\t') {
+                ++end;
+            }
+            return std::wstring(after, end);
+        }
+        p += flagLen;
+    }
+    return {};
+}
+
 } // namespace
 
 //==============================================================================
@@ -127,8 +170,8 @@ void TerminateHandler() {
 //------------------------------------------------------------------------------
 // 1. Install crash handlers
 // 2. Initialize core services to read loader config
-// 3. Load module selection from Config/Config_Loader.json
-// 4. Route to Pet mode (full app) or Clean mode (standalone runner, future)
+// 3. Load module selection from Config_Loader.json (or a --flavor file)
+// 4. Route to the selected carrier: pet window, tray only, or module launcher
 //==============================================================================
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
@@ -143,6 +186,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     if (pCmdLine && wcsstr(pCmdLine, L"--reload-wait")) {
         UpdateManager::SetReloadWaitRequested(true);
     }
+
+    // BuildUI.py flavours: --flavor selects Config_Flavor_<name>.json and
+    // --carrier overrides the carrier stored in it (handy when testing the
+    // same module selection in a different shell).
+    const std::wstring flavor = GetArgValue(pCmdLine, L"--flavor");
+    const std::wstring carrier = GetArgValue(pCmdLine, L"--carrier");
 
     ConfigManager::Initialize(hInstance);
     Logger::Initialize(hInstance);
@@ -161,26 +210,43 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
         return 0;
     }
 
-    LoaderConfig::Data cfg = LoaderConfig::Load();
-
-    if (cfg.mode == LoaderConfig::Mode::Clean) {
-        DBG(L"Clean mode selected — not yet implemented, falling through to Pet");
+    LoaderConfig::Data cfg = LoaderConfig::Load(flavor);
+    if (!carrier.empty()) {
+        cfg.mode = LoaderConfig::ModeFromKey(carrier);
     }
 
     const size_t moduleCount = cfg.enabledModules.empty()
         ? LoaderConfig::ScanAvailableModules().size()
         : cfg.enabledModules.size();
-    DBG(L"Starting in Pet mode with %zu module(s) selected", moduleCount);
-    Logger::Write(L"Main", L"Starting in Pet mode with " + std::to_wstring(moduleCount) +
-                           L" module(s) selected.");
+    DBG(L"Starting in %s mode with %zu module(s) selected", LoaderConfig::ModeToKey(cfg.mode),
+        moduleCount);
+    Logger::Write(L"Main", std::wstring(L"Starting in ") + LoaderConfig::ModeToKey(cfg.mode) +
+                               L" mode with " + std::to_wstring(moduleCount) + L" module(s) selected.");
 
     try {
         HostApp app;
-        if (!app.Initialize(hInstance, nCmdShow, cfg)) {
+        // Tray and window flavours still create the pet window (the tray icon,
+        // module lifecycle and hotkeys hang off it) but never show it, so the
+        // user's saved pet visibility is left alone.
+        const bool startHidden = cfg.mode != LoaderConfig::Mode::Pet;
+        if (!app.Initialize(hInstance, nCmdShow, cfg, startHidden)) {
             return 1;
         }
 
-        return app.Run();
+        std::unique_ptr<ModuleLauncherWindow> launcher;
+        if (cfg.mode == LoaderConfig::Mode::Window) {
+            launcher = std::make_unique<ModuleLauncherWindow>(hInstance, &app.GetModuleManager());
+            if (launcher->Create()) {
+                launcher->Show(SW_SHOW);
+            } else {
+                Logger::Write(L"Error", L"Failed to create the module launcher window.");
+                launcher.reset();
+            }
+        }
+
+        const int exitCode = app.Run();
+        launcher.reset();
+        return exitCode;
     } catch (const std::exception& e) {
         AppendCrashReport("C++ exception",
                           std::string("  type    : std::exception\n  what    : ") + e.what() + "\n");
