@@ -11,6 +11,7 @@
 
 #include "../../Core/IFeatureModule.h"
 #include "../../Core/IDropActionProvider.h"
+#include "../../Core/ILedIndicator.h"
 #include "../../Core/ConfigTypes.h"
 #include "../../Services/FileTransferService.h"
 #include "RemoteControlTypes.h"
@@ -25,7 +26,7 @@
 #include <condition_variable>
 #include <atomic>
 
-class RemoteControlModule : public IFeatureModule, public IDropActionProvider {
+class RemoteControlModule : public IFeatureModule, public IDropActionProvider, public ILedIndicator {
 public:
     RemoteControlModule();
     ~RemoteControlModule() override;
@@ -60,9 +61,9 @@ public:
     void StartRemoteControl();
     void StopRemoteControl();
     void OpenSavePathDialog();
-    bool IsRunning() const { return m_running; }
-    COLORREF GetLedColor() const;
-    void ShowLed(bool visible);
+    bool IsRunning() const override { return m_running; }
+    COLORREF GetLedColor() const override;
+    void ShowLed(bool visible) override;
 
 private:
     void InitializeDefinitions();

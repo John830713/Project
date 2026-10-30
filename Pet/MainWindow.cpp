@@ -9,7 +9,7 @@
 #include "../Core/InputManager.h"
 #include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
-#include "../Modules/RemoteControl/RemoteControlModule.h"
+#include "../Core/ILedIndicator.h"
 #include <windowsx.h>
 #include <shellapi.h>
 #include <commctrl.h>
@@ -516,8 +516,8 @@ void MainWindow::CreateSnapIndicator() {
     if (m_moduleManager) {
         for (auto* mod : m_moduleManager->GetAllModules()) {
             if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0) {
-                auto* rc = static_cast<RemoteControlModule*>(mod);
-                if (rc->IsRunning()) ledColor = rc->GetLedColor();
+                auto* rc = dynamic_cast<ILedIndicator*>(mod);
+                if (rc && rc->IsRunning()) ledColor = rc->GetLedColor();
                 break;
             }
         }
@@ -564,11 +564,11 @@ void MainWindow::ApplySnapIndicator() {
 void MainWindow::CheckEdgeSnap() {
     if (!m_hwnd) return;
 
-    auto findRcMod = [this]() -> RemoteControlModule* {
+    auto findRcMod = [this]() -> ILedIndicator* {
         if (!m_moduleManager) return nullptr;
         for (auto* mod : m_moduleManager->GetAllModules()) {
             if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0)
-                return static_cast<RemoteControlModule*>(mod);
+                return dynamic_cast<ILedIndicator*>(mod);
         }
         return nullptr;
     };

@@ -2,6 +2,11 @@ CXX = g++
 RC = windres
 CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode $(CXXFLAGS_EXTRA)
 LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows -lversion
+# Libraries used by always-compiled core/UI code must not depend on a module
+# being selected: UI/NetworkInfoDialog needs iphlpapi, the module dialogs use
+# comdlg32. A subset build (BuildUI.py --modules) would otherwise fail to link
+# with "undefined reference to GetAdaptersAddresses" / GetOpenFileNameW.
+LIBS += -liphlpapi -lcomdlg32
 
 # Auto-regenerate build/translation files if missing
 ifeq ($(wildcard GeneratedBuild.mk),)
