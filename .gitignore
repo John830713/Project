@@ -17,6 +17,10 @@ Translation/*.ini
 
 # User config (local only)
 Config/*.ini
+Config/*.json
+
+# Generated flavour launchers (BuildUI.py)
+Flavors/
 
 # Logs
 Log/
@@ -28,5 +32,8 @@ ProjectName.txt
 HostHint.txt
 Version.txt
 TargetName.txt
+
+# Python
+__pycache__/
 
 .agent/
