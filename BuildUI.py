@@ -10,7 +10,8 @@ Carriers (LoaderConfig::Mode):
   tray   - tray icon only, pet window stays hidden
   window - a plain module launcher window, pet window stays hidden
 
-Run it with:  py BuildUI.py
+Run it with:  BuildUI.bat          (windowless: launches pythonw.exe)
+          or:  py BuildUI.py      (keeps a console around, useful for debugging)
 """
 
 import json
@@ -20,15 +21,27 @@ import shutil
 import subprocess
 import sys
 import threading
-import tkinter as tk
+import traceback
 from pathlib import Path
-from tkinter import messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+
+# tkinter is imported defensively: under pythonw.exe (no console) a missing
+# tkinter would otherwise kill the process before anything is visible. The
+# failure is reported by main() through a MessageBox instead.
+try:
+    import tkinter as tk
+    from tkinter import messagebox, ttk
+    from tkinter.scrolledtext import ScrolledText
+    TK_IMPORT_ERROR = None
+except Exception as _exc:  # noqa: BLE001
+    tk = None
+    messagebox = ttk = ScrolledText = None
+    TK_IMPORT_ERROR = _exc
 
 ROOT = Path(__file__).resolve().parent
 CONFIG_DIR = ROOT / "Config"
 FLAVOR_DIR = ROOT / "Flavors"
 STATE_FILE = ROOT / ".agent" / "buildui_state.json"
+ERROR_LOG = ROOT / ".agent" / "buildui_error.log"
 
 CARRIERS = [
     ("pet", "Pet 寵物視窗", "完整程式：寵物視窗 + 系統匣"),
@@ -44,11 +57,29 @@ MONO_FONT = ("Consolas", 9)
 # Environment helpers
 # ---------------------------------------------------------------------------
 
+def console_python():
+    """Interpreter to use for the child build processes.
+
+    The tool normally runs under pythonw.exe so no console window appears.
+    pythonw has no usable console handles, so the children it spawns would not
+    be able to attach one; use the console twin (python.exe) instead.
+    """
+    exe = Path(sys.executable)
+    name = exe.name.lower()
+    if name in ("pythonw.exe", "pyw.exe"):
+        for candidate in (exe.with_name(name.replace("w.exe", ".exe")),
+                          Path(sys.base_prefix) / "python.exe"):
+            if candidate.exists():
+                return str(candidate)
+        return "python"
+    return sys.executable or "python"
+
+
 def load_modules():
     """Ask Build.py for the module inventory (single source of truth)."""
     try:
         result = subprocess.run(
-            [sys.executable, "Build.py", "--list-modules"],
+            [console_python(), "Build.py", "--list-modules"],
             cwd=str(ROOT),
             capture_output=True,
             text=True,
@@ -114,7 +145,7 @@ def process_running(exe_name):
 # ---------------------------------------------------------------------------
 
 class BuildUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root):
         self.root = root
         self.modules = []
         self.vars = {}
@@ -411,7 +442,7 @@ class BuildUI:
         commands = []
         if self.clean_var.get():
             commands.append([str(make), "SHELL=cmd.exe", "clean"])
-        build_py = [sys.executable, "Build.py"]
+        build_py = [console_python(), "Build.py"]
         if not self.all_var.get():
             build_py += ["--modules", ",".join(modules)]
         commands.append(build_py)
@@ -515,7 +546,21 @@ class BuildUI:
         self.root.destroy()
 
 
+def report_fatal(message):
+    """Show a startup failure without relying on tkinter or a console."""
+    try:
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Build Tool", 0x10)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
+    if TK_IMPORT_ERROR is not None:
+        report_fatal("Build Tool 無法啟動：找不到 tkinter。\n\n" + str(TK_IMPORT_ERROR) +
+                     "\n\n請安裝含 Tcl/Tk 的 Python，或改用 py BuildUI.py 查看錯誤。")
+        return 1
+
     root = tk.Tk()
     try:
         root.option_add("*Font", UI_FONT)
@@ -528,4 +573,17 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        code = main()
+    except Exception:  # noqa: BLE001
+        # No console exists under pythonw, so a traceback would vanish.
+        detail = traceback.format_exc()
+        try:
+            ERROR_LOG.parent.mkdir(parents=True, exist_ok=True)
+            ERROR_LOG.write_text(detail, encoding="utf-8")
+        except Exception:  # noqa: BLE001
+            pass
+        report_fatal("Build Tool 發生未預期的錯誤：\n\n" + detail[-1200:] +
+                     "\n\n詳細記錄：" + str(ERROR_LOG))
+        code = 1
+    sys.exit(code)

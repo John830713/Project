@@ -32,6 +32,19 @@
 BuildUI.bat
 ```
 
+雙擊後只會出現 Tk 視窗，**不會有 Console 視窗**：`BuildUI.bat` 用 `pyw` / `pythonw`
+（無 Console 的啟動器）開啟 `BuildUI.py`，只有兩者都找不到時才退回 `py`
+（此時 Console 會保留，方便看 traceback）。
+
+要在 Console 裡看錯誤時直接跑：
+
+```cmd
+py BuildUI.py
+```
+
+視窗無聲消失（`pythonw` 的例外沒有地方印）時，查看 `.agent/buildui_error.log`，
+工具的未攔截例外會寫在裡面，同時跳一個 MessageBox。
+
 1. 左側勾選模組（「全部編入」= 不加 `--modules`，行為同舊的 Build.bat）
 2. 右側選載體、Flavor 名稱
 3. `Build` → 寫 Flavor 檔 → `py Build.py --modules ...` → `mingw32-make SHELL=cmd.exe`
