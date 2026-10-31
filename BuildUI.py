@@ -14,6 +14,7 @@ Run it with:  BuildUI.bat          (windowless: launches pythonw.exe)
           or:  py BuildUI.py      (keeps a console around, useful for debugging)
 """
 
+import ctypes
 import json
 import os
 import queue
@@ -22,6 +23,7 @@ import subprocess
 import sys
 import threading
 import traceback
+from ctypes import wintypes
 from pathlib import Path
 
 # tkinter is imported defensively: under pythonw.exe (no console) a missing
@@ -136,16 +138,67 @@ def target_exe_name():
     return ROOT.name + ".exe"
 
 
-def process_running(exe_name):
+def process_ids(exe_name):
+    """PIDs of every process whose image *name* is `exe_name`, anywhere.
+
+    tasklist filters on the image name only, which is exactly the scope the
+    app's own single-instance guard uses (Core/UpdateManager.cpp: a peer is any
+    process with the same file name, not the same directory).
+    """
     try:
         result = subprocess.run(
-            ["tasklist", "/FI", f"IMAGENAME eq {exe_name}"],
+            ["tasklist", "/FO", "CSV", "/NH", "/FI", f"IMAGENAME eq {exe_name}"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             creationflags=NO_WINDOW,
         )
     except Exception:  # noqa: BLE001
+        return []
+
+    pids = []
+    for line in (result.stdout or "").splitlines():
+        fields = [f.strip().strip('"') for f in line.split('","')]
+        if len(fields) < 2 or not fields[0].strip('"').lower() == exe_name.lower():
+            continue
+        try:
+            pids.append(int(fields[1].strip('"')))
+        except ValueError:
+            continue
+    return pids
+
+
+def image_path(pid):
+    """Full path of a running process's image, or '' when it cannot be read."""
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, wintypes.LPWSTR, ctypes.POINTER(wintypes.DWORD)
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(32768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return buffer.value
+        return ""
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def running_copies(exe_name):
+    """[(pid, image_path)] for every running process named `exe_name`."""
+    return [(pid, image_path(pid)) for pid in process_ids(exe_name)]
+
+
+def same_file(left, right):
+    if not left or not right:
         return False
-    return exe_name.lower() in (result.stdout or "").lower()
+    return os.path.normcase(os.path.abspath(left)) == os.path.normcase(os.path.abspath(right))
 
 
 # ---------------------------------------------------------------------------
@@ -433,16 +486,33 @@ class BuildUI:
             return
 
         exe_name = target_exe_name()
-        if process_running(exe_name):
+        target = ROOT / exe_name
+        copies = running_copies(exe_name)
+
+        # Only the running image itself keeps a lock on the file the linker has
+        # to overwrite. A copy started from another folder holds *that* file,
+        # not ours, so it does not block the build - report it and carry on.
+        ours = [(pid, path) for pid, path in copies if same_file(path, target)]
+        others = [(pid, path) for pid, path in copies if (pid, path) not in ours]
+
+        if others:
+            for _pid, path in others:
+                self._log_line(f"[build] 另一個副本正在執行：{path or '<路徑未知>'}（不影響建置）")
+
+        if ours:
             if not messagebox.askyesno(
                 "Build Tool",
-                f"{exe_name} 正在執行，連結會因檔案被佔用而失敗。\n要結束它並繼續建置嗎？",
+                f"{exe_name} 正在執行，而且就是這次要覆寫的檔案：\n"
+                f"{target}\n\n"
+                "連結時會因為檔案被佔用而失敗（Permission denied）。\n"
+                "要結束它並繼續建置嗎？",
             ):
                 return
-            subprocess.run(["taskkill", "/F", "/IM", exe_name],
-                           capture_output=True, text=True,
-                           creationflags=NO_WINDOW)
-            self._log_line(f"[build] 已結束 {exe_name}")
+            for pid, _path in ours:
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True, text=True,
+                               creationflags=NO_WINDOW)
+            self._log_line(f"[build] 已結束 {exe_name}（PID {', '.join(str(p) for p, _ in ours)}）")
 
         self._write_flavor(flavor, self.carrier_var.get(), modules)
         self._write_launcher(flavor)
@@ -536,6 +606,29 @@ class BuildUI:
         if not exe.exists():
             messagebox.showerror("Build Tool", f"找不到 {exe.name}，請先 Build。")
             return
+
+        # The app treats "another process with the same image name" as the same
+        # application (single instance + in-place update), no matter which
+        # folder it lives in. Launching this build while a copy runs therefore
+        # does not open a second window: it either hot-swaps the new file into
+        # that copy's path and relaunches it, or just says "already running".
+        copies = running_copies(exe.name)
+        if copies:
+            listed = "\n".join("  " + (path or f"PID {pid}") for pid, path in copies)
+            if not messagebox.askyesno(
+                "Build Tool",
+                f"{exe.name} 已經有副本在執行：\n{listed}\n\n"
+                "程式以「檔名」判定單一實例，所以直接啟動新檔不會開第二個視窗："
+                "版本較新時會把新檔熱替換到那個副本的路徑並重啟它，"
+                "否則只顯示「已在執行中」。\n\n"
+                "要結束那些副本，再用目前這份建置啟動嗎？",
+            ):
+                return
+            for pid, _path in copies:
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True, text=True,
+                               creationflags=NO_WINDOW)
+            self._log_line("[run] 已結束執行中的副本")
 
         flavor = self.flavor_name()
         if not (CONFIG_DIR / f"Config_Flavor_{flavor}.json").exists():
