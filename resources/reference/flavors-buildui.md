@@ -29,12 +29,15 @@
 ## 用法
 
 ```
-BuildUI.bat
+BuildUI.vbs        <- 建議：完全沒有 Console
+BuildUI.bat        <- 同上，但 .bat 本身會閃一下 Console
+py BuildUI.py      <- 保留 Console，方便看 traceback
 ```
 
-雙擊後只會出現 Tk 視窗，**不會有 Console 視窗**：`BuildUI.bat` 用 `pyw` / `pythonw`
-（無 Console 的啟動器）開啟 `BuildUI.py`，只有兩者都找不到時才退回 `py`
-（此時 Console 會保留，方便看 traceback）。
+`BuildUI.vbs` 是**沒有 Console 的入口**（wscript 本身就是 GUI 程式，完全不會閃視窗），
+它會依序找 `pyw.exe` → `pythonw.exe` → `python.exe` 來跑 `BuildUI.py`。
+`BuildUI.bat` 只是轉呼叫它，給習慣用 cmd 的人；`.bat` 本身仍會短暫閃一個 Console
+（Windows 行為，無法避免），所以**建議雙擊 `BuildUI.vbs`**。
 
 要在 Console 裡看錯誤時直接跑：
 
@@ -44,6 +47,13 @@ py BuildUI.py
 
 視窗無聲消失（`pythonw` 的例外沒有地方印）時，查看 `.agent/buildui_error.log`，
 工具的未攔截例外會寫在裡面，同時跳一個 MessageBox。
+
+> `BuildUI.vbs` 只能有 ASCII 內容：Windows Script Host 沒看到 BOM 時會用 ANSI
+> 讀 `.vbs`，中文字串會變成編譯錯誤（`Expected end of statement`）。訊息文字請留英文。
+
+`BuildUI.py` 產生的子行程（`Build.py`、`mingw32-make`、`tasklist`、`taskkill`、
+`Project.exe`）一律帶 `CREATE_NO_WINDOW`：`pythonw` 沒有 Console，console 子行程
+若不加這個旗標會自己開一個空的黑視窗。
 
 1. 左側勾選模組（「全部編入」= 不加 `--modules`，行為同舊的 Build.bat）
 2. 右側選載體、Flavor 名稱

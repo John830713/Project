@@ -49,6 +49,12 @@ CARRIERS = [
     ("window", "UI 視窗", "模組啟動器視窗，寵物視窗保持隱藏"),
 ]
 
+# The tool runs under pythonw (no console). A console child spawned from a
+# process without a console allocates a console window of its own, which would
+# flash as an empty black window during builds. CREATE_NO_WINDOW prevents that;
+# every child's output is redirected into the log pane anyway.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+
 UI_FONT = ("Microsoft JhengHei UI", 10)
 MONO_FONT = ("Consolas", 9)
 
@@ -86,6 +92,7 @@ def load_modules():
             encoding="utf-8",
             errors="replace",
             timeout=60,
+            creationflags=NO_WINDOW,
         )
     except Exception as exc:  # noqa: BLE001 - surfaced in the log pane
         raise RuntimeError(f"無法執行 Build.py --list-modules：{exc}") from exc
@@ -134,6 +141,7 @@ def process_running(exe_name):
         result = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {exe_name}"],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
+            creationflags=NO_WINDOW,
         )
     except Exception:  # noqa: BLE001
         return False
@@ -432,7 +440,8 @@ class BuildUI:
             ):
                 return
             subprocess.run(["taskkill", "/F", "/IM", exe_name],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           creationflags=NO_WINDOW)
             self._log_line(f"[build] 已結束 {exe_name}")
 
         self._write_flavor(flavor, self.carrier_var.get(), modules)
@@ -469,6 +478,7 @@ class BuildUI:
                     cmd, cwd=str(ROOT), env=env,
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                     text=True, encoding="utf-8", errors="replace", bufsize=1,
+                    creationflags=NO_WINDOW,
                 )
             except Exception as exc:  # noqa: BLE001
                 self.log_queue.put(("error", f"無法執行：{exc}"))
@@ -535,7 +545,8 @@ class BuildUI:
         args = [str(exe), "--flavor", flavor]
         self._log_line("[run] " + " ".join(args))
         try:
-            subprocess.Popen(args, cwd=str(ROOT), close_fds=True)
+            subprocess.Popen(args, cwd=str(ROOT), close_fds=True,
+                             creationflags=NO_WINDOW)
         except Exception as exc:  # noqa: BLE001
             messagebox.showerror("Build Tool", f"無法啟動：{exc}")
 
