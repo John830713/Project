@@ -544,7 +544,7 @@ The host pointer lets tray commands reach `HostApp` state
 | MenuOrderTest | `Debug/Core/MenuOrderTest.cpp` | 13 — menu ordering, unique ids, execute dispatch |
 | ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | 32 — clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
-| UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 29 — version ordering, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
+| UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 32 — version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | 35 — dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
@@ -572,9 +572,12 @@ Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers 
 | Situation | Detection | Action |
 |-----------|-----------|--------|
 | No other instance | mutex free + no peer process | keep mutex, `RemoveStaleBackups`, run normally |
-| Peer running, this build **≤ on-disk** | file versions | 2-second notice (with both versions), exit |
-| Peer running, this build **newer** | file versions | rename-swap at the peer's path, signal relaunch, 2-second "restarting with the new version" notice, exit |
+| Peer running, this build **≤ on-disk** | `IsNewerBuild` (version, then write time) | 2-second notice (with both versions), exit |
+| Peer running, this build **newer** | `IsNewerBuild` (version, then write time) | rename-swap at the peer's path, signal relaunch, 2-second "restarting with the new version" notice, exit |
+| Peer is this very file | image path identical | "already running" notice, exit (never swaps a file over itself) |
 | Mutex set but peer path unqueryable | `QueryFullProcessImageNameW` fails | "already running" notice, exit |
+
+- **Comparison is version first, write time second** (`IsNewerBuild`). The VERSIONINFO is written by `Build.py`, not the linker, so a plain `make` (rebuild of changed sources without regenerating the resource) produces a *different binary with the same version number*. Version alone would call that "already running"; equal versions therefore fall back to the file's last-write time. `CopyFileW` preserves it, so an installed copy keeps the stamp of the build it came from.
 
 - Peer discovery is a **Toolhelp32 process scan keyed on the executable name** (`FindPeerProcess`), not just the mutex — it detects builds that predate this feature. The PEB image path is fixed at process creation, so even after an earlier rename-swap the running instance still reports the original registered path: always the right swap target.
 - The notice is a self-owned `WS_POPUP` with its own message loop and a 2 s `WM_TIMER` (`MessageBox` has no built-in timeout). Strings come from the `[Update]` translation section via an injected `NoticeTranslator` (`TranslationService` is loaded early just for this).
@@ -603,7 +606,7 @@ Verified end-to-end by `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid
 
 The start/stop context-menu handlers persist a `ResumeState` flag (0/1) straight in `Config_RemoteControl.ini` — deliberately **outside** `m_definitions`, so it never appears in the settings UI and `SaveConfig` never touches it. `ApplyConfig` starts RemoteControl when `AutoStart` **or** `ResumeState` is set, and `Shutdown()`/the destructor stop the service **without** clearing the flag. A session that ends while RemoteControl is active (including a restart after an in-place update) therefore resumes where it left off; only an explicit menu **Stop** writes 0.
 
-Covered by `UpdateManagerTest` (29 checks).
+Covered by `UpdateManagerTest` (32 checks).
 
 ---
 

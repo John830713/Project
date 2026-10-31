@@ -312,6 +312,42 @@ bool IsNewer(std::uint64_t candidate, std::uint64_t current) {
     return candidate > current;
 }
 
+namespace {
+
+// Last-write time. CopyFileW keeps the source's write time, so an installed
+// build keeps the stamp of the file it was built from.
+bool ReadWriteTime(const std::wstring& path, FILETIME* written) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        return false;
+    }
+    *written = data.ftLastWriteTime;
+    return true;
+}
+
+} // namespace
+
+bool IsNewerBuild(const std::wstring& candidatePath,
+                  const std::wstring& currentPath) {
+    const std::uint64_t candidateVersion = ReadFileVersion(candidatePath);
+    const std::uint64_t currentVersion = ReadFileVersion(currentPath);
+    if (candidateVersion != currentVersion) {
+        return IsNewer(candidateVersion, currentVersion);
+    }
+
+    // Same version resource. That is normal for a plain `make`: the resource is
+    // written by Build.py, not by the linker, so a rebuild of changed sources
+    // keeps the previous version number. Fall back to the write time, which is
+    // what actually differs between two such binaries.
+    FILETIME candidateWritten{};
+    FILETIME currentWritten{};
+    if (!ReadWriteTime(candidatePath, &candidateWritten) ||
+        !ReadWriteTime(currentPath, &currentWritten)) {
+        return false;
+    }
+    return CompareFileTime(&candidateWritten, &currentWritten) > 0;
+}
+
 std::wstring MakeBackupName(const std::wstring& target) {
     SYSTEMTIME st;
     GetLocalTime(&st);
@@ -437,7 +473,11 @@ bool BeginSession(const NoticeTranslator& tr, bool waitForHandoff) {
 
     const std::uint64_t diskVersion = ReadFileVersion(peerPath);
 
-    if (!IsNewer(ourVersion, diskVersion)) {
+    // Never swap a file over itself: double-clicking the running installed exe
+    // (or "Run" in BuildUI with that same path) must just report it.
+    const bool sameImage = _wcsicmp(self.c_str(), peerPath.c_str()) == 0;
+
+    if (sameImage || !IsNewerBuild(self, peerPath)) {
         std::wstring text = tr(L"The program is already running.");
         if (ourVersion != 0 || diskVersion != 0) {
             text += L"\n" + FillTemplate(tr(L"Clicked version: %s"),

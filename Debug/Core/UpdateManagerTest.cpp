@@ -141,6 +141,51 @@ void TestVersionOrdering() {
 }
 
 //------------------------------------------------------------------------------
+// Build comparison across a rebuild that kept the same version resource
+//------------------------------------------------------------------------------
+
+void SetWriteTime(const std::wstring& path, const SYSTEMTIME& st) {
+    FILETIME ft{};
+    SystemTimeToFileTime(&st, &ft);
+    HANDLE h = CreateFileW(path.c_str(), FILE_WRITE_ATTRIBUTES,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    SetFileTime(h, nullptr, nullptr, &ft);
+    CloseHandle(h);
+}
+
+void TestBuildComparison() {
+    std::printf("\n-- Build comparison (equal version resource) --\n");
+
+    const std::wstring installed = TempPath(L"installed.exe");
+    const std::wstring rebuilt = TempPath(L"rebuilt.exe");
+
+    WriteTestFile(installed, "OLD BUILD");
+    WriteTestFile(rebuilt, "NEW BUILD");
+
+    SYSTEMTIME older{};
+    older.wYear = 2026; older.wMonth = 10; older.wDay = 31;
+    older.wHour = 18; older.wMinute = 0; older.wSecond = 0;
+
+    SYSTEMTIME newer = older;
+    newer.wHour = 19;
+
+    SetWriteTime(installed, older);
+    SetWriteTime(rebuilt, newer);
+
+    Check(UpdateManager::IsNewerBuild(rebuilt, installed),
+          "same version + newer write time counts as an update");
+    Check(!UpdateManager::IsNewerBuild(installed, rebuilt),
+          "same version + older write time does not");
+    Check(!UpdateManager::IsNewerBuild(rebuilt, rebuilt),
+          "a file is never newer than itself");
+
+    DeleteFileW(installed.c_str());
+    DeleteFileW(rebuilt.c_str());
+}
+
+//------------------------------------------------------------------------------
 // Rename-and-swap
 //------------------------------------------------------------------------------
 
@@ -292,6 +337,7 @@ int main() {
 
     TestVersionReading();
     TestVersionOrdering();
+    TestBuildComparison();
     TestBackupName();
     TestSwapSuccess();
     TestSwapRollback();
