@@ -338,7 +338,14 @@ Common control classes:
 - **Image**: `Pet.png` loaded via GDI+ `Bitmap::FromFile` → `GetHBITMAP` → memory DC → `UpdateLayeredWindow`
 - **Fallback**: 64×64 green rectangle if `Pet.png` missing
 - **Dragging**: `WM_NCHITTEST` returns `HTCAPTION` — entire window acts as title bar
-- **Position**: Persisted to `Config_Pet.ini` on `WM_EXITSIZEMOVE`, restored on startup (centered if `-1`)
+- **Position**: Persisted to `Config_Pet.ini` on `WM_EXITSIZEMOVE` and `WM_DESTROY`
+  (the in-place update relaunch kills the process, so the final save is what the
+  next instance reads), restored on startup (centered if `-1`)
+- **Reachability**: a restored position is clamped into the monitor work area
+  (`EnsureOnScreen`), because a position saved on a bigger desktop — RDP session
+  resize, monitor unplugged — would otherwise put the pet where it can never be
+  grabbed again. `WM_DISPLAYCHANGE` / `WM_SETTINGCHANGE(SPI_SETWORKAREA)` re-run
+  the clamp at runtime.
 
 ### Message loop
 
@@ -353,6 +360,19 @@ Standard `GetMessageW` loop in `HostApp::Run()`. No dedicated game loop. Motion 
 ### Edge snap
 
 When dragged within threshold of screen edge → shrink to 24×24 indicator dot (rounded rect + LED color). Timer 2 pulses at 250ms. Pauses auto-movement.
+
+- Snapping is measured against the monitor the pet is on (`MonitorFromWindow` +
+  `GetMonitorInfoW`), not `SM_CXSCREEN`: after an RDP resize the pet may not be
+  on the monitor the primary-screen metrics describe.
+- The parked edge is persisted as `snapEdge` in `Config_Pet.ini`
+  (`0` free, `1..4` = top/bottom/left/right) and re-applied by
+  `RestoreEdgeSnap()` at startup, so a parked pet stays parked across restarts
+  and in-place updates. While parked `posX`/`posY` are **not** rewritten (the
+  window is only the 24×24 dot at that point); the free position is kept.
+- `snapEdge` is deliberately absent from `PetConfig::GetDefinitions()` — it is
+  window state, not a setting — and is read with `GetPrivateProfileIntW`, so old
+  config files without the key load as free (`0`). `SettingsDialog::OnSave`
+  carries the loaded value over when it rewrites the pet config.
 
 ### Context popup system
 

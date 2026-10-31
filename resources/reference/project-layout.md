@@ -15,7 +15,7 @@ D:\Project/
 ├── GeneratedVersion.*       Auto-generated (by Build.py) — FILEVERSION resource
 ├── TranslationRes.rc        Embeds Translation/zh-TW.ini as RCDATA
 ├── Pet.png                  Desktop pet image (loaded by MainWindow)
-├── Config_Pet.ini           Pet config (opacity, scale, position, move)
+├── Config_Pet.ini           Pet config (opacity, scale, position, move, snap edge)
 ├── Config_*.ini             Per-module config files
 ├── Log/                     Log files per module
 ├── debug_log.txt            Debug console log (DEBUG_CONSOLE only)

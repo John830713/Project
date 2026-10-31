@@ -13,6 +13,7 @@ class ModuleManager;
 class InputManager;
 struct ResolvedDropAction;
 struct ContextMenuItem;
+class ILedIndicator;
 
 enum class SliderKind { Opacity, Scale, Step, Speed };
 
@@ -165,6 +166,17 @@ private:
     void CheckEdgeSnap();
     void CreateSnapIndicator();
     void ApplySnapIndicator();
+
+    //--- Position persistence and multi-monitor safety ---
+    // RestoreEdgeSnap re-applies a snap that was saved in the config, so a pet
+    // parked on an edge comes back parked after a restart.
+    void RestoreEdgeSnap(int edge);
+    // EnsureOnScreen pulls the window back into the nearest monitor's work
+    // area. Needed when the saved position came from a bigger desktop (RDP
+    // resize, monitor removed): an off-screen pet can never be grabbed again.
+    void EnsureOnScreen();
+    void OnDisplayChange();
+    ILedIndicator* FindLedIndicator();
 
     static constexpr int SNAP_INDICATOR_SIZE = 24;
 

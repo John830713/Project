@@ -896,6 +896,9 @@ void SettingsDialog::OnSave(HWND hwnd) {
     petData.moveStep = getInt(L"moveStep", 3);
     petData.moveSpeed = getInt(L"moveSpeed", 200);
     petData.moveShuttle = getBool(L"moveShuttle", false);
+    // snapEdge has no field in the dialog: keep whatever the pet window saved
+    // so opening Settings cannot silently un-park the pet.
+    petData.snapEdge = PetConfig::Load().snapEdge;
     {
         auto it = m_petEditedValues.find(L"language");
         petData.language = (it != m_petEditedValues.end()) ? it->second : L"en";

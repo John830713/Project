@@ -22,6 +22,16 @@ PetConfig::Data PetConfig::Load() {
     data.moveSpeed = std::stoi(values[L"moveSpeed"]);
     data.moveShuttle = values[L"moveShuttle"] == L"1";
     data.language = values[L"language"];
+
+    // snapEdge is window state written by the snap gesture, not something the
+    // user picks in the settings dialog, so it stays out of GetDefinitions()
+    // (which drives that dialog) and is read straight from the file.
+    data.snapEdge = GetPrivateProfileIntW(
+        L"Pet", L"snapEdge", 0,
+        ConfigManager::GetModuleConfigPath(L"Config_Pet.ini").c_str());
+    if (data.snapEdge < 0) data.snapEdge = 0;
+    if (data.snapEdge > 4) data.snapEdge = 4;
+
     return data;
 }
 
@@ -36,6 +46,7 @@ void PetConfig::Save(const Data& data) {
     values[L"moveStep"] = std::to_wstring(data.moveStep);
     values[L"moveSpeed"] = std::to_wstring(data.moveSpeed);
     values[L"moveShuttle"] = data.moveShuttle ? L"1" : L"0";
+    values[L"snapEdge"] = std::to_wstring(data.snapEdge);
     values[L"language"] = data.language;
     ConfigManager::SaveModuleConfig(L"Config_Pet.ini", L"Pet", values);
 }

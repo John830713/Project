@@ -339,6 +339,17 @@ bool MainWindow::Create(
 
     outHwnd = m_hwnd = hwnd;
     ApplyWindowImage();
+
+    // Restore the state the app was in when it last ran: a pet parked on a
+    // screen edge has to come back parked, and a position saved on a bigger
+    // desktop (RDP session resize, monitor removed) has to be pulled back into
+    // view, otherwise the pet can never be grabbed again.
+    if (petCfg.snapEdge != SNAP_NONE) {
+        RestoreEdgeSnap(petCfg.snapEdge);
+    } else {
+        EnsureOnScreen();
+    }
+
     SyncMoveState();
 
     if (nCmdShow != SW_HIDE) {
@@ -354,12 +365,140 @@ bool MainWindow::Create(
 
 void MainWindow::SavePosition() {
     if (!m_hwnd) return;
+    PetConfig::Data petCfg = PetConfig::Load();
+    if (!m_edgeSnapped) {
+        // Only a free position is worth restoring. While parked the window is
+        // just the 24x24 edge indicator, and saving that rect would make the
+        // pet reappear at full size at the screen border next time.
+        RECT rc;
+        GetWindowRect(m_hwnd, &rc);
+        petCfg.posX = rc.left;
+        petCfg.posY = rc.top;
+    }
+    petCfg.snapEdge = m_edgeSnapped ? m_snapEdge : SNAP_NONE;
+    PetConfig::Save(petCfg);
+}
+
+//==============================================================================
+// Monitor helpers
+//==============================================================================
+
+namespace {
+
+// Bounds of the monitor a window is on (nearest one when the window is
+// off-screen, which is exactly the case this file has to repair).
+bool GetMonitorBounds(HWND hwnd, RECT& monitorRect, RECT& workRect) {
+    HMONITOR mon = hwnd
+        ? MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)
+        : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfoW(mon, &mi)) {
+        return false;
+    }
+    monitorRect = mi.rcMonitor;
+    workRect = mi.rcWork;
+    return true;
+}
+
+} // namespace
+
+void MainWindow::EnsureOnScreen() {
+    if (!m_hwnd) return;
+
+    RECT mon = {};
+    RECT work = {};
+    if (!GetMonitorBounds(m_hwnd, mon, work)) {
+        return;
+    }
+
     RECT rc;
     GetWindowRect(m_hwnd, &rc);
-    PetConfig::Data petCfg = PetConfig::Load();
-    petCfg.posX = rc.left;
-    petCfg.posY = rc.top;
-    PetConfig::Save(petCfg);
+    const int w = rc.right - rc.left;
+    const int h = rc.bottom - rc.top;
+
+    int x = rc.left;
+    int y = rc.top;
+    if (x + w > work.right) x = work.right - w;
+    if (y + h > work.bottom) y = work.bottom - h;
+    if (x < work.left) x = work.left;
+    if (y < work.top) y = work.top;
+
+    if (x != rc.left || y != rc.top) {
+        DBG(L"[Pet] Position (%d,%d) is outside the work area; moved to (%d,%d)",
+            (int)rc.left, (int)rc.top, x, y);
+        SetWindowPos(m_hwnd, nullptr, x, y, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+void MainWindow::RestoreEdgeSnap(int edge) {
+    if (!m_hwnd) return;
+    if (edge < SNAP_TOP || edge > SNAP_RIGHT) return;
+
+    // Reuse the free position stored in the config (clamped to the monitor in
+    // case the desktop shrank) and then pin the edge coordinate, exactly like
+    // CheckEdgeSnap does at the end of a drag.
+    EnsureOnScreen();
+
+    RECT mon = {};
+    RECT work = {};
+    if (!GetMonitorBounds(m_hwnd, mon, work)) {
+        return;
+    }
+
+    RECT rc;
+    GetWindowRect(m_hwnd, &rc);
+    int newX = rc.left;
+    int newY = rc.top;
+    switch (edge) {
+    case SNAP_TOP:
+        newY = mon.top;
+        break;
+    case SNAP_BOTTOM:
+        newY = mon.bottom - SNAP_INDICATOR_SIZE;
+        break;
+    case SNAP_LEFT:
+        newX = mon.left;
+        break;
+    case SNAP_RIGHT:
+        newX = mon.right - SNAP_INDICATOR_SIZE;
+        break;
+    }
+
+    if (auto* led = FindLedIndicator()) led->ShowLed(false);
+
+    SetWindowPos(m_hwnd, nullptr, newX, newY, SNAP_INDICATOR_SIZE, SNAP_INDICATOR_SIZE,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+    m_edgeSnapped = true;
+    m_snapEdge = edge;
+    SetTimer(m_hwnd, 2, 250, nullptr);
+    CreateSnapIndicator();
+    ApplySnapIndicator();
+
+    DBG(L"[Pet] Restored snap on edge %d at (%d,%d)", edge, newX, newY);
+}
+
+void MainWindow::OnDisplayChange() {
+    if (!m_hwnd) return;
+    // A parked pet lives on a pixel column/row that may not exist any more.
+    // Re-pin it to the same edge of the (possibly new) monitor; a free pet is
+    // simply pulled back inside.
+    if (m_edgeSnapped) {
+        RestoreEdgeSnap(m_snapEdge);
+    } else {
+        EnsureOnScreen();
+    }
+}
+
+ILedIndicator* MainWindow::FindLedIndicator() {
+    if (!m_moduleManager) return nullptr;
+    for (auto* mod : m_moduleManager->GetAllModules()) {
+        if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0) {
+            return dynamic_cast<ILedIndicator*>(mod);
+        }
+    }
+    return nullptr;
 }
 
 void MainWindow::ReloadPetConfig() {
@@ -564,25 +703,22 @@ void MainWindow::ApplySnapIndicator() {
 void MainWindow::CheckEdgeSnap() {
     if (!m_hwnd) return;
 
-    auto findRcMod = [this]() -> ILedIndicator* {
-        if (!m_moduleManager) return nullptr;
-        for (auto* mod : m_moduleManager->GetAllModules()) {
-            if (wcscmp(mod->GetModuleName(), L"RemoteControl") == 0)
-                return dynamic_cast<ILedIndicator*>(mod);
-        }
-        return nullptr;
-    };
-
     RECT rc;
     GetWindowRect(m_hwnd, &rc);
 
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    // Snap against the monitor the pet is on, not the primary screen: after a
+    // remote-desktop resize the pet may live on a different monitor than the
+    // one SM_CXSCREEN describes.
+    RECT mon = {};
+    RECT work = {};
+    if (!GetMonitorBounds(m_hwnd, mon, work)) {
+        mon = { 0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN) };
+    }
 
-    int distTop = rc.top;
-    int distBottom = screenH - rc.bottom;
-    int distLeft = rc.left;
-    int distRight = screenW - rc.right;
+    int distTop = rc.top - mon.top;
+    int distBottom = mon.bottom - rc.bottom;
+    int distLeft = rc.left - mon.left;
+    int distRight = mon.right - rc.right;
 
     int threshold = (m_imageWidth + m_imageHeight) / 4;
     if (threshold < 40) threshold = 40;
@@ -598,7 +734,7 @@ void MainWindow::CheckEdgeSnap() {
             m_edgeSnapped = false;
             m_snapEdge = SNAP_NONE;
             KillTimer(m_hwnd, 2);
-            if (auto* rc = findRcMod()) rc->ShowLed(true);
+            if (auto* led = FindLedIndicator()) led->ShowLed(true);
             SetWindowPos(m_hwnd, nullptr, rc.left, rc.top, m_imageWidth, m_imageHeight, SWP_NOZORDER | SWP_NOACTIVATE);
             ApplyWindowImage();
         }
@@ -610,20 +746,20 @@ void MainWindow::CheckEdgeSnap() {
 
     switch (edge) {
     case SNAP_TOP:
-        newY = 0;
+        newY = mon.top;
         break;
     case SNAP_BOTTOM:
-        newY = screenH - SNAP_INDICATOR_SIZE;
+        newY = mon.bottom - SNAP_INDICATOR_SIZE;
         break;
     case SNAP_LEFT:
-        newX = 0;
+        newX = mon.left;
         break;
     case SNAP_RIGHT:
-        newX = screenW - SNAP_INDICATOR_SIZE;
+        newX = mon.right - SNAP_INDICATOR_SIZE;
         break;
     }
 
-    if (auto* rc = findRcMod()) rc->ShowLed(false);
+    if (auto* led = FindLedIndicator()) led->ShowLed(false);
 
     SetWindowPos(m_hwnd, nullptr, newX, newY, SNAP_INDICATOR_SIZE, SNAP_INDICATOR_SIZE, SWP_NOZORDER | SWP_NOACTIVATE);
     m_edgeSnapped = true;
@@ -696,6 +832,21 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_EXITSIZEMOVE:
         CheckEdgeSnap();
         SavePosition();
+        return 0;
+
+    case WM_DISPLAYCHANGE:
+        // A remote-desktop session resizes the desktop at runtime. The pet may
+        // now sit outside the new bounds (or on a monitor that disappeared),
+        // where it can no longer be clicked.
+        OnDisplayChange();
+        return 0;
+
+    case WM_SETTINGCHANGE:
+        // Taskbar/work-area changes move the usable region without a display
+        // change; keep a free pet reachable.
+        if (wParam == SPI_SETWORKAREA && !m_edgeSnapped) {
+            EnsureOnScreen();
+        }
         return 0;
 
     case WM_TIMER:
@@ -858,6 +1009,10 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_DESTROY:
         StopMoveTimer();
         KillTimer(m_hwnd, 2);
+        // Persist the parked/free state one more time: an in-place update kills
+        // the process via a fresh launch, and the new instance must find the
+        // pet exactly where it was left.
+        SavePosition();
         if (!m_recreating)
             PostQuitMessage(0);
         return 0;

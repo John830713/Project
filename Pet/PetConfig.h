@@ -16,6 +16,10 @@ public:
         int moveStep = 3;
         int moveSpeed = 200;
         bool moveShuttle = false;
+        // Screen edge the pet is parked on: 0 = free, 1..4 = top/bottom/left/
+        // right (MainWindow::SNAP_*). Written when the pet snaps, so the parked
+        // state survives a restart or an in-place update relaunch.
+        int snapEdge = 0;
         std::wstring language = L"en";
     };
 
