@@ -12,6 +12,7 @@ Project-wide shared infrastructure. All upper layers depend on this.
 | `IHostContext.h` | Abstract host context (HINSTANCE, HWND, TranslationService) |
 | `IInputHandler.h` | Optional input handling interface |
 | `ConfigManager.h/cpp` | INI config path management, read/write, auto-fill |
+| `AutoStart.h/cpp` | Per-user Run entry ("Start with Windows") read/write |
 | `ConfigTypes.h` | `ConfigFieldDefinition` and `ConfigValueType` definitions |
 | `DropTypes.h` | `DropContext` / `DropActionDefinition` shared types |
 | `InputManager.h/cpp` | Centralized input dispatch |

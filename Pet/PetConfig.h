@@ -20,6 +20,9 @@ public:
         // right (MainWindow::SNAP_*). Written when the pet snaps, so the parked
         // state survives a restart or an in-place update relaunch.
         int snapEdge = 0;
+        // "Start with Windows". The registry Run entry is the source of truth;
+        // PetConfig::Load reads it back instead of trusting the INI file.
+        bool autoStart = false;
         std::wstring language = L"en";
     };
 

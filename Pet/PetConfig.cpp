@@ -1,4 +1,5 @@
 #include "PetConfig.h"
+#include "../Core/AutoStart.h"
 #include "../Core/ConfigManager.h"
 #include <windows.h>
 
@@ -32,6 +33,11 @@ PetConfig::Data PetConfig::Load() {
     if (data.snapEdge < 0) data.snapEdge = 0;
     if (data.snapEdge > 4) data.snapEdge = 4;
 
+    // Windows starts the app from the Run entry, so that entry - not the INI
+    // copy - decides whether the checkbox is ticked. Deleting it from Task
+    // Manager therefore turns the setting off instead of lying about it.
+    data.autoStart = AutoStart::IsEnabled();
+
     return data;
 }
 
@@ -47,8 +53,13 @@ void PetConfig::Save(const Data& data) {
     values[L"moveSpeed"] = std::to_wstring(data.moveSpeed);
     values[L"moveShuttle"] = data.moveShuttle ? L"1" : L"0";
     values[L"snapEdge"] = std::to_wstring(data.snapEdge);
+    values[L"autoStart"] = data.autoStart ? L"1" : L"0";
     values[L"language"] = data.language;
     ConfigManager::SaveModuleConfig(L"Config_Pet.ini", L"Pet", values);
+
+    // Mirror the flag into the registry, which is what actually makes Windows
+    // launch the app. No-op when the entry already matches.
+    AutoStart::SetEnabled(data.autoStart);
 }
 
 std::vector<ConfigFieldDefinition> PetConfig::GetDefinitions() {
@@ -63,5 +74,6 @@ std::vector<ConfigFieldDefinition> PetConfig::GetDefinitions() {
         { L"moveSpeed", L"Move Speed (ms)", ConfigValueType::Int, L"200", 10, 1000 },
         { L"moveShuttle", L"Move Shuttle", ConfigValueType::Bool, L"0", 0, 0 },
         { L"language", L"Language", ConfigValueType::String, L"en", 0, 0 },
+        { L"autoStart", L"Start with Windows", ConfigValueType::Bool, L"0", 0, 0 },
     };
 }

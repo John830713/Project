@@ -7,7 +7,7 @@ Desktop pet host/carrier UI for all feature modules. Transparent GDI+ layered wi
 | File | Role |
 |------|------|
 | `MainWindow.h/cpp` | Layered transparent window, drag-drop, context menu, movement system |
-| `PetConfig.h/cpp` | INI config (`Config/Config_Pet.ini`) for pet settings |
+| `PetConfig.h/cpp` | INI config (`Config/Config_Pet.ini`) for pet settings; `autoStart` is read back from and written to the HKCU Run entry via `Core/AutoStart` |
 | `lang/zh-TW.ini` | Pet-specific translations |
 
 ## Right-Click Menu Structure

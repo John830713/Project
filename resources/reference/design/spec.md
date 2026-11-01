@@ -217,6 +217,26 @@ struct ConfigFieldDefinition {
 - Bool → checkbox, Int/String → edit box (Int with trackbar), Directory → edit + browse button
 - Scrollbar if fields exceed visible area
 
+### Start with Windows
+
+Tab 0 ends with a `Start with Windows` checkbox. It maps to `autoStart` in
+`Config_Pet.ini`, but the **registry is the source of truth**: `PetConfig::Load()`
+asks `Core/AutoStart` whether the per-user Run entry
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value = exe base name)
+exists *and* points at this executable. `PetConfig::Save()` mirrors the flag back
+into that entry (no-op when it already matches), which matters because the pet
+window saves the config on every drag/opacity change.
+
+- No admin rights, no Startup-folder shortcut; unticking deletes the value.
+- The registered command is `"<exe>"` plus the `--flavor`/`--carrier` switches the
+  process was started with (`--reload-wait` is never persisted), so the boot
+  reproduces the mode the user was in when they ticked the box.
+- Two copies of the app share one value name (the exe name), so the path check
+  decides which copy currently owns the entry; enabling it from the other copy
+  takes it over.
+- If the registry rejects the write (policy), `SettingsDialog::OnSave` shows a
+  warning instead of leaving a checkbox that silently springs back.
+
 ---
 
 ## 4. Build System

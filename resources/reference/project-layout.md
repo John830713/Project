@@ -15,7 +15,7 @@ D:\Project/
 ├── GeneratedVersion.*       Auto-generated (by Build.py) — FILEVERSION resource
 ├── TranslationRes.rc        Embeds Translation/zh-TW.ini as RCDATA
 ├── Pet.png                  Desktop pet image (loaded by MainWindow)
-├── Config_Pet.ini           Pet config (opacity, scale, position, move, snap edge)
+├── Config_Pet.ini           Pet config (opacity, scale, position, move, snap edge, start with Windows)
 ├── Config_*.ini             Per-module config files
 ├── Log/                     Log files per module
 ├── debug_log.txt            Debug console log (DEBUG_CONSOLE only)
@@ -27,6 +27,7 @@ D:\Project/
 │   ├── IHostContext.h       Abstract host access (HWND, HINSTANCE, TranslationService)
 │   ├── IInputHandler.h      Input event interface
 │   ├── ConfigManager.h/.cpp INI persistence via GetPrivateProfileStringW
+│   ├── AutoStart.h/.cpp     Per-user Run entry ("Start with Windows")
 │   ├── LoaderConfig.h/.cpp  Startup config filter (which modules to load)
 │   ├── ModuleManager.h/.cpp Module registry, lifecycle orchestration, drop dispatch
 │   ├── InputManager.h/.cpp  Input event routing

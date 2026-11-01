@@ -1,4 +1,5 @@
 #include "SettingsDialog.h"
+#include "../Core/AutoStart.h"
 #include "../Core/ModuleManager.h"
 #include "../Core/IFeatureModule.h"
 #include "../Core/Logger.h"
@@ -899,11 +900,24 @@ void SettingsDialog::OnSave(HWND hwnd) {
     // snapEdge has no field in the dialog: keep whatever the pet window saved
     // so opening Settings cannot silently un-park the pet.
     petData.snapEdge = PetConfig::Load().snapEdge;
+    petData.autoStart = getBool(L"autoStart", PetConfig::Load().autoStart);
     {
         auto it = m_petEditedValues.find(L"language");
         petData.language = (it != m_petEditedValues.end()) ? it->second : L"en";
     }
     PetConfig::Save(petData);
+
+    // The registry can refuse the write (policy, permissions); the checkbox
+    // would silently spring back on the next open, so say so now.
+    if (petData.autoStart != AutoStart::IsEnabled()) {
+        MessageBoxW(hwnd,
+                    TranslationService::Get()->Tr(
+                        L"Settings",
+                        L"Could not update the Windows startup entry.")
+                        .c_str(),
+                    TranslationService::Get()->Tr(L"Settings", L"Settings").c_str(),
+                    MB_OK | MB_ICONWARNING);
+    }
     // MainWindow::ReloadPetConfig() reloads the translation, re-resolves the
     // window title and asks the host to refresh the tray tooltip.
     SendMessageW(m_parent, WM_APP + 3, 0, 0);
