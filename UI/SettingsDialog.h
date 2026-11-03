@@ -8,6 +8,7 @@
 
 #include "../Core/ConfigTypes.h"
 #include "../Pet/PetConfig.h"
+#include "../Services/RemoteInitService.h"
 
 class ModuleManager;
 class IFeatureModule;
@@ -40,6 +41,9 @@ private:
     int m_scrollPos;
     std::vector<std::map<std::wstring, std::wstring>> m_editedValues;
     std::map<std::wstring, std::wstring> m_petEditedValues;
+    std::vector<RemoteInitItem> m_remoteInitItems;
+    RemoteInitStatus m_remoteInitStatus;
+    std::wstring m_remoteInitBackupPath;
     std::vector<HWND> m_fieldLabels;
     std::vector<HWND> m_fieldControls;
     std::vector<HWND> m_browseBtns;

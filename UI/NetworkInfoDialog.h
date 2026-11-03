@@ -1,7 +1,9 @@
 #pragma once
 #include <windows.h>
+#include <commctrl.h>
 #include <string>
 #include <vector>
+#include "../Services/RemoteInitService.h"
 
 class NetworkInfoDialog {
 public:
@@ -15,10 +17,16 @@ private:
     int Layout();
     void OnCopy(int idx);
     static void DrawCopyGlyph(HDC dc, int x, int y, int w, int h);
+    void InitNetworkTab(HWND hwnd);
+    void InitRemoteTab(HWND hwnd);
+    void RefreshRemoteTab(HWND hwnd);
+    void OnRemoteCommand(HWND hwnd, WPARAM wParam);
 
     HWND m_hwnd;
     HWND m_parent;
+    HWND m_hTab;
     HWND m_hBtnClose;
+    int m_currentTab;
     int m_scrollPos;
     int m_contentH;
 
@@ -37,4 +45,9 @@ private:
     std::vector<IpRow> m_rows;
     int m_nextBtnId;
     HICON m_hCopyIcon;
+
+    RemoteInitStatus m_remoteStatus;
+    std::vector<RemoteInitItem> m_remoteItems;
+    std::wstring m_remoteBackupPath;
+    std::vector<HWND> m_remoteCtrls;
 };

@@ -5,6 +5,7 @@
 #include "../Core/Logger.h"
 #include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
+#include "../Services/ProcessRunner.h"
 
 #include <shobjidl.h>
 #include <windowsx.h>
@@ -23,6 +24,12 @@ namespace {
     constexpr int BTN_H = 26;
     constexpr int BTN_W = 80;
     constexpr int BTN_BOTTOM = 10;
+    enum {
+        ID_REMOTE_INIT_REFRESH = 2001,
+        ID_REMOTE_INIT_BACKUP = 2002,
+        ID_REMOTE_INIT_RESTORE = 2003,
+        ID_REMOTE_INIT_APPLY = 2004
+    };
 }
 
 SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
@@ -54,6 +61,9 @@ SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
     m_petEditedValues[L"language"] = petData.language;
     m_origOpacity = petData.opacity;
     m_origScale = petData.scalePercent;
+
+    m_remoteInitStatus = RemoteInitService::Get()->CheckEnvironment();
+    m_remoteInitItems = RemoteInitService::Get()->GetDefaultItems(m_remoteInitStatus);
 }
 
 SettingsDialog::~SettingsDialog() {
@@ -313,10 +323,79 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         UINT id = LOWORD(wParam);
         if (id == 1) { OnSave(hwnd); return 0; }
         if (id == 2) { OnCancel(hwnd); return 0; }
+        if (id == ID_REMOTE_INIT_REFRESH) {
+            m_remoteInitStatus = RemoteInitService::Get()->CheckEnvironment();
+            m_remoteInitItems = RemoteInitService::Get()->GetDefaultItems(m_remoteInitStatus);
+            OnTabChanged(hwnd);
+            return 0;
+        }
+        if (id == ID_REMOTE_INIT_BACKUP) {
+            if (m_currentTab == 1 + (int)m_modules.size()) {
+                m_remoteInitBackupPath = RemoteInitService::Get()->CreateBackup(m_remoteInitStatus);
+                MessageBoxW(hwnd, (L"已備份目前設定：\r\n" + m_remoteInitBackupPath).c_str(), L"備份完成", MB_OK | MB_ICONINFORMATION);
+            }
+            return 0;
+        }
+        if (id == ID_REMOTE_INIT_RESTORE) {
+            if (m_currentTab == 1 + (int)m_modules.size()) {
+                if (m_remoteInitBackupPath.empty()) {
+                    MessageBoxW(hwnd, L"尚未建立備份", L"還原", MB_OK | MB_ICONWARNING);
+                    return 0;
+                }
+                if (MessageBoxW(hwnd, L"確定要從最近一次備份還原設定？", L"還原確認", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    if (RemoteInitService::Get()->RestoreBackup(m_remoteInitBackupPath)) {
+                        MessageBoxW(hwnd, L"還原完成", L"還原", MB_OK | MB_ICONINFORMATION);
+                    } else {
+                        MessageBoxW(hwnd, L"還原失敗（簡化實作僅支援部分項目）", L"還原", MB_OK | MB_ICONWARNING);
+                    }
+                    m_remoteInitStatus = RemoteInitService::Get()->CheckEnvironment();
+                    OnTabChanged(hwnd);
+                }
+            }
+            return 0;
+        }
+        if (id == ID_REMOTE_INIT_APPLY) {
+            if (m_currentTab == 1 + (int)m_modules.size()) {
+                if (!m_remoteInitStatus.isElevated) {
+                    if (MessageBoxW(hwnd, L"目前不是以系統管理員身分執行。\r\n建議以系統管理員身分重新啟動程式後再執行。\r\n是否要以管理員身分重新啟動？", L"需要管理員權限", MB_YESNO | MB_ICONWARNING) == IDYES) {
+                        ProcessRunner::RestartElevated(L"");
+                        PostQuitMessage(0);
+                    }
+                    return 0;
+                }
+                // sync checkbox states
+                for (size_t i = 0; i < m_fieldControls.size(); ++i) {
+                    auto kit = m_controlKeys.find(m_fieldControls[i]);
+                    if (kit == m_controlKeys.end()) continue;
+                    if (kit->second.find(L"__remoteinit__") == 0) {
+                        std::wstring id2 = kit->second.substr(wcslen(L"__remoteinit__"));
+                        for (auto& it : m_remoteInitItems) {
+                            if (it.id == id2) {
+                                it.checked = (SendMessageW(m_fieldControls[i], BM_GETCHECK, 0, 0) == BST_CHECKED);
+                                break;
+                            }
+                        }
+                    }
+                }
+                wchar_t userName[256] = {};
+                DWORD sz = 256;
+                GetUserNameW(userName, &sz);
+                auto res = RemoteInitService::Get()->ApplySelected(m_remoteInitItems, userName);
+                std::wstring log = L"執行結果：\r\n\r\n";
+                for (auto& l : res.logs) log += l + L"\r\n";
+                if (res.allOk) log += L"\r\n全部項目執行完成。";
+                else log += L"\r\n部分項目執行失敗，詳見 Log。";
+                MessageBoxW(hwnd, log.c_str(), L"Remote Init 結果", MB_OK | MB_ICONINFORMATION);
+                m_remoteInitStatus = RemoteInitService::Get()->CheckEnvironment();
+                m_remoteInitItems = RemoteInitService::Get()->GetDefaultItems(m_remoteInitStatus);
+                OnTabChanged(hwnd);
+            }
+            return 0;
+        }
         if (id == 1000) {
             DBG(L"SettingsDialog WM_COMMAND 1000 (Manage)");
             ReadFieldsFromControls();
-            if (m_currentTab > 0) {
+            if (m_currentTab > 0 && m_currentTab <= (int)m_modules.size()) {
                 DBG(L"  currentTab=%d module=%s",
                     m_currentTab, m_modules[m_currentTab - 1]->GetModuleName());
                 m_modules[m_currentTab - 1]->OpenCustomSettings(hwnd);
@@ -477,6 +556,9 @@ void SettingsDialog::SetupTabs(HWND hwnd) {
         SendMessageW(m_hTab, TCM_INSERTITEM, (WPARAM)(i + 1), (LPARAM)&tie);
     }
 
+    tie.pszText = const_cast<wchar_t*>(L"Remote Init");
+    SendMessageW(m_hTab, TCM_INSERTITEM, (WPARAM)(1 + m_modules.size()), (LPARAM)&tie);
+
     m_currentTab = 0;
     TabCtrl_SetCurSel(m_hTab, 0);
 }
@@ -503,7 +585,7 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
     m_scrollPos = 0;
 
     int sel = TabCtrl_GetCurSel(m_hTab);
-    int tabCount = 1 + (int)m_modules.size();
+    int tabCount = 1 + (int)m_modules.size() + 1;
     DBG(L"  new sel=%d tabCount=%d", sel, tabCount);
     if (sel >= 0 && sel < tabCount) {
         m_currentTab = sel;
@@ -512,10 +594,65 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
 }
 
 void SettingsDialog::PopulateFields(HWND hwnd) {
-    int tabCount = 1 + (int)m_modules.size();
+    int tabCount = 1 + (int)m_modules.size() + 1;
     DBG(L"PopulateFields: currentTab=%d tabCount=%d", m_currentTab, tabCount);
     if (m_currentTab < 0 || m_currentTab >= tabCount) {
         DBG(L"  EARLY RETURN (invalid tab)");
+        return;
+    }
+
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+
+    if (m_currentTab == 1 + (int)m_modules.size()) {
+        int baseY = FIELD_START_Y - m_scrollPos;
+        int y = baseY;
+        {
+            std::wstring info = L"系統：";
+            if (m_remoteInitStatus.isElevated) info += L"已管理員權限  ";
+            else info += L"非管理員權限  ";
+            if (m_remoteInitStatus.isWindowsHome) info += L"Windows Home  ";
+            info += L"產品：" + m_remoteInitStatus.productName + L"  ";
+            info += L"網路：" + m_remoteInitStatus.networkCategory;
+            HWND hInfo = CreateWindowW(L"STATIC", info.c_str(), WS_CHILD | WS_VISIBLE,
+                MARGIN, y, rc.right - MARGIN * 2, 40, hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+            if (m_hFont) SendMessageW(hInfo, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+            m_fieldLabels.push_back(hInfo);
+            y += 44;
+        }
+        for (size_t i = 0; i < m_remoteInitItems.size(); ++i) {
+            const auto& it = m_remoteInitItems[i];
+            UINT flags = WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX;
+            if (!it.selectable) flags |= WS_DISABLED;
+            std::wstring lbl = it.label;
+            lbl += L"  -  ";
+            lbl += it.desc;
+            HWND hChk = CreateWindowW(L"BUTTON", lbl.c_str(), flags,
+                MARGIN, y, rc.right - MARGIN * 2, 22, hwnd, (HMENU)(10000 + (int)i), GetModuleHandleW(nullptr), nullptr);
+            if (m_hFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+            if (it.checked && it.selectable) SendMessageW(hChk, BM_SETCHECK, BST_CHECKED, 0);
+            m_fieldControls.push_back(hChk);
+            m_controlKeys[hChk] = L"__remoteinit__" + it.id;
+            m_controlTypes[hChk] = ConfigValueType::Bool;
+            y += 26;
+        }
+        y += 12;
+        HWND hBackup = CreateWindowW(L"BUTTON", L"備份目前設定", WS_CHILD | WS_VISIBLE,
+            MARGIN, y, 110, BTN_H, hwnd, (HMENU)ID_REMOTE_INIT_BACKUP, GetModuleHandleW(nullptr), nullptr);
+        if (m_hFont) SendMessageW(hBackup, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+        HWND hRestore = CreateWindowW(L"BUTTON", L"從備份還原", WS_CHILD | WS_VISIBLE,
+            MARGIN + 118, y, 110, BTN_H, hwnd, (HMENU)ID_REMOTE_INIT_RESTORE, GetModuleHandleW(nullptr), nullptr);
+        if (m_hFont) SendMessageW(hRestore, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+        HWND hRefresh = CreateWindowW(L"BUTTON", L"重新檢查", WS_CHILD | WS_VISIBLE,
+            MARGIN + 236, y, 90, BTN_H, hwnd, (HMENU)ID_REMOTE_INIT_REFRESH, GetModuleHandleW(nullptr), nullptr);
+        if (m_hFont) SendMessageW(hRefresh, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+        HWND hApply = CreateWindowW(L"BUTTON", L"套用所選項目", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+            rc.right - 130 - MARGIN, y, 130, BTN_H, hwnd, (HMENU)ID_REMOTE_INIT_APPLY, GetModuleHandleW(nullptr), nullptr);
+        if (m_hFont) SendMessageW(hApply, WM_SETFONT, (WPARAM)m_hFont, TRUE);
+        m_fieldControls.push_back(hBackup);
+        m_fieldControls.push_back(hRestore);
+        m_fieldControls.push_back(hRefresh);
+        m_fieldControls.push_back(hApply);
         return;
     }
 
@@ -531,7 +668,7 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
         values = &m_editedValues[m_currentTab - 1];
     }
 
-    RECT rc;
+    // rc already fetched above if needed; get again
     GetClientRect(hwnd, &rc);
 
     for (size_t i = 0; i < defs.size(); ++i) {

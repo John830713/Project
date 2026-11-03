@@ -8,7 +8,7 @@ namespace fs = std::filesystem;
 std::vector<uint8_t> FileService::ReadBinaryFile(const fs::path& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + path.string());
+        throw std::runtime_error("Failed to open file");
     }
 
     file.seekg(0, std::ios::end);
@@ -16,14 +16,14 @@ std::vector<uint8_t> FileService::ReadBinaryFile(const fs::path& path) {
     file.seekg(0, std::ios::beg);
 
     if (size < 0) {
-        throw std::runtime_error("Failed to determine file size: " + path.string());
+        throw std::runtime_error("Failed to determine file size");
     }
 
     std::vector<uint8_t> buffer(static_cast<size_t>(size));
     if (size > 0) {
         file.read(reinterpret_cast<char*>(buffer.data()), size);
         if (!file) {
-            throw std::runtime_error("Failed to read file: " + path.string());
+            throw std::runtime_error("Failed to read file");
         }
     }
 
