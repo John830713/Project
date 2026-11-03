@@ -15,7 +15,7 @@
    ```
 3. Implement `IFeatureModule` in `<Name>Module.h/.cpp`
 4. Add `Modules/<Name>/lang/zh-TW.ini` with `[<Name>]` section for menu labels
-5. Run `py Build.py` to regenerate registry + build files
+5. Run `py BuildUI.py --generate` to regenerate registry + build files
 6. Build with `mingw32-make`
 
 ### Minimal module checklist
@@ -112,7 +112,7 @@ The MenuOrder dialog (`UI/MenuOrderDialog.h/.cpp`) allows users to reorder modul
 1. Create `Modules/<Name>/lang/zh-TW.ini`
 2. Use `[<ModuleName>]` section matching `GetModuleName()`
 3. Format: `Key=Translation`
-4. Run `py Build.py` to merge into `Translation/zh-TW.ini`
+4. Run `py BuildUI.py --generate` to merge into `Translation/zh-TW.ini`
 
 ---
 
@@ -121,4 +121,4 @@ The MenuOrder dialog (`UI/MenuOrderDialog.h/.cpp`) allows users to reorder modul
 - Always `#include "NetworkInfoDialog.h"` or equivalent in the module, not in MainWindow
 - `m_host->GetMainWindow()` gives the parent HWND for dialogs
 - `ConfigManager::LoadModuleConfig` auto-fills missing keys with defaults
-- After adding a `.cpp` file anywhere, run `py Build.py` before `mingw32-make`
+- After adding a `.cpp` file anywhere, run `py BuildUI.py --generate` before `mingw32-make`

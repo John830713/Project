@@ -4,15 +4,17 @@
 D:\Project/
 ├── main.cpp                 Application entry (wWinMain)
 ├── HostApp.h/.cpp           App host: init, msg loop, module lifecycle, console reader
-├── Makefile                 Build rules (MinGW-g++), auto-runs Build.py
-├── Build.bat                One-click build (clean → Build.py → make)
-├── Build.py                 Codegen: module registry, icon, merged translations
+├── Makefile                 Build rules (MinGW-g++), auto-runs `py BuildUI.py --generate`
+├── BuildUI.vbs              Recommended launcher: build tool with no console
+├── BuildUI.bat              Same launcher for cmd users (brief console flash)
+├── BuildUI.py               Single build tool: codegen + clean/build/tests + module/carrier UI
+├── Config/BuildUI.json      Machine-local build config (release/debug, carrier, flavour; gitignored)
 ├── ProjectPackager.py       Packaging report / export-clean
 ├── ProjectSnapshot.py       Project context snapshot for agents
-├── GenerateModuleRegistry.* Auto-generated (by Build.py)
-├── GeneratedBuild.mk        Auto-generated (by Build.py)
-├── GeneratedIcon.*          Auto-generated (by Build.py)
-├── GeneratedVersion.*       Auto-generated (by Build.py) — FILEVERSION resource
+├── GenerateModuleRegistry.* Auto-generated (by BuildUI.py)
+├── GeneratedBuild.mk        Auto-generated (by BuildUI.py)
+├── GeneratedIcon.*          Auto-generated (by BuildUI.py)
+├── GeneratedVersion.*       Auto-generated (by BuildUI.py) — FILEVERSION resource
 ├── TranslationRes.rc        Embeds Translation/zh-TW.ini as RCDATA
 ├── Pet.png                  Desktop pet image (loaded by MainWindow)
 ├── Config_Pet.ini           Pet config (opacity, scale, position, move, snap edge, start with Windows)

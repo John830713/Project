@@ -10,8 +10,8 @@ LIBS += -liphlpapi -lcomdlg32
 
 # Auto-regenerate build/translation files if missing
 ifeq ($(wildcard GeneratedBuild.mk),)
-$(info GeneratedBuild.mk missing, running Build.py...)
-DUMMY := $(shell py Build.py)
+$(info GeneratedBuild.mk missing, running BuildUI.py --generate...)
+DUMMY := $(shell py BuildUI.py --generate)
 endif
 
 -include GeneratedBuild.mk
@@ -68,8 +68,8 @@ ifneq ($(wildcard Translation/_src/zh-TW.ini),)
 ifneq ($(wildcard $(TRANSLATION_OUT)),)
 TRANSLATION_DEPS = Translation/_src/zh-TW.ini $(wildcard Pet/lang/zh-TW.ini) $(wildcard Modules/*/lang/zh-TW.ini)
 else
-$(info $(TRANSLATION_OUT) missing, running Build.py...)
-DUMMY2 := $(shell py Build.py)
+$(info $(TRANSLATION_OUT) missing, running BuildUI.py --generate...)
+DUMMY2 := $(shell py BuildUI.py --generate)
 endif
 endif
 
@@ -84,7 +84,7 @@ $(TARGET): $(ALL_OBJS)
 
 ifneq ($(TRANSLATION_DEPS),)
 $(TRANSLATION_OUT): $(TRANSLATION_DEPS)
-	py Build.py
+	py BuildUI.py --generate
 endif
 
 TranslationRes.o: $(TRANSLATION_OUT)

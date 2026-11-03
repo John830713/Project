@@ -15,7 +15,7 @@
 
 ## 解決方案
 
-- 翻譯 key 不可有尾端空白：`Build.py` 的 `parse_ini_sections()` 會 `.strip()` key/value；C++ 中 prefix+name 空白由 `+ L" " +` 顯式處理
+- 翻譯 key 不可有尾端空白：`BuildUI.py --generate` 的 `parse_ini_sections()` 會 `.strip()` key/value；C++ 中 prefix+name 空白由 `+ L" " +` 顯式處理
 - 模組熱鍵衝突：各 action 的 `id` 作為 `RegisterHotKey` 的識別碼，`ModuleManager` 的 menu route 用 unique id 避免衝突
 
 ## 後續建議

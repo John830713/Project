@@ -15,7 +15,7 @@ Desktop pet system architecture and reusable UI patterns.
 ## Principles
 
 - **Modules are plugins**: each module is a self-contained DLL-like unit under `Modules/`
-- **Build.py is the source of truth**: it scans `Modules/*/*.module.ini` to generate registry + build files
+- **BuildUI.py is the source of truth**: `py BuildUI.py --generate` scans `Modules/*/*.module.ini` to generate registry + build files
 - **Win32 native**: no MFC/ATL, no dialog resources, all UI created programmatically
 - **INI persistence**: all config uses `GetPrivateProfileStringW`/`WritePrivateProfileStringW`
 - **Translation**: every module must provide `lang/zh-TW.ini`; `Tr(section, key)` falls back to English key if locale entry missing

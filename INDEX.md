@@ -34,14 +34,16 @@ See [resources/reference/modules-overview.md](resources/reference/modules-overvi
 |------|------|
 | `main.cpp` | Application entry point (`wWinMain`) |
 | `HostApp.h/cpp` | Application host, IHostContext impl, module lifecycle |
-| `Makefile` | Build rules (MinGW-g++), auto-runs `Build.py` if generated files missing |
-| `Build.bat` | One-click build: clean → `py Build.py` → `make`. Reads `MakePath.txt` |
-| `Build.py` | Codegen: module registry, icon resource, merged translations |
+| `Makefile` | Build rules (MinGW-g++), auto-runs `py BuildUI.py --generate` if generated files missing |
+| `BuildUI.vbs` | Recommended launcher: opens the build tool with no console window |
+| `BuildUI.bat` | Same launcher for cmd users (brief console flash) |
+| `BuildUI.py` | The single build tool: codegen (registry, icon, version, translations), clean/build/tests, and the module/carrier checkbox UI. Replaces the old `Build.bat`/`Build.py`/`Clear.bat` |
+| `Config/BuildUI.json` | Machine-local build config (mode `release`/`debug`, carrier, flavour, selection) — gitignored |
 | `ProjectPackager.py` | Packaging report / export-clean |
 | `ProjectSnapshot.py` | Project context snapshot for agents |
 | `TranslationRes.rc` | Embeds `Translation/zh-TW.ini` as RCDATA |
 | `Pet.png` | Desktop pet image (loaded by MainWindow) |
-| `Test.png` | Alternate icon source (used by Build.py if no .ico file) |
+| `Test.png` | Icon source (used by BuildUI.py if no .ico file) |
 | `AGENTS.md` | Agent startup guide (build commands, shell environment) |
 
 ## Referenced by

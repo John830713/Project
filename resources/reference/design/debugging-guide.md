@@ -147,7 +147,7 @@ that the AUTOTEST exists on purpose. Check in this order:
 ## 7. Build and run notes
 
 - Toolchain: `D:\Program Files\MSYS2Portable\App\msys64\ucrt64\bin` (GCC 16.1.0,
-  Make 4.4.1, windres 2.46). `MakePath.txt` points `Build.bat` at it; the scripts
+  Make 4.4.1, windres 2.46). `BuildUI.py` reads `MakePath.txt` for it; the scripts
   in `resources/tools/local/` call bare `mingw32-make`, so they need that directory
   prepended to `PATH`.
 - `bash.exe` is absent from `usr\bin` — pacman is unusable, but the native UCRT64

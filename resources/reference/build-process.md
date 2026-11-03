@@ -1,61 +1,72 @@
 # 建置流程總結
 
-## 達成目標
+## 進入點
 
-1. 確認 Build.bat 為正確的建置進入點
-2. 記錄 build → trim 完整流程與輸出
-3. 更新 Design.txt 修正過時的 build 指令
+只有一個建置工具：
 
-## 流程細節
-
-### Build.bat (無參數)
 ```
-0. cd /d "%~dp0" (D:\Project)
-1. 讀 MakePath.txt → 自訂 make 路徑
-2. 未設定則搜尋 PATH: mingw32-make > make > gmake
-3. 未找到則檢查 MSYS2 預設位置
-4. 找到後：D:\Program Files\MSYS2Portable\App\msys64\ucrt64\bin\mingw32-make.exe
-5. 前置 toolchain bin/ 到 PATH
-6. make clean → 刪除 *.o *.d Project.exe
-7. py Build.py → 掃描 Modules/*/*.module.ini 產生 GeneratedBuild.mk、GeneratedModuleRegistry.cpp、
-   GeneratedIcon.rc (從 Test.png)、合併翻譯
-8. make → 編譯 34 個 .cpp → .o，連結 Project.exe
-9. 無 trim 參數則結束，按任意鍵退出
+BuildUI.vbs        <- 建議：完全沒有 Console
+BuildUI.bat        <- 同上，但 .bat 本身會閃一下 Console
+py BuildUI.py      <- 保留 Console，方便看 traceback
 ```
 
-### Build.bat trim
-同上，第 8 步後追加 `make trim`（Makefile 無此 target，失敗但忽略，不影響結果）
+舊的 `Build.bat`、`Build.py`、`Clear.bat` 已整合進 `BuildUI.py`（`BuildUI.py`
+同時負責 codegen、clean、build、test 與 UI）。`Makefile` 需要 codegen 時會呼叫
+`py BuildUI.py --generate`。
 
-### 編譯參數
+## 建置模式
+
+模式存在 `Config/BuildUI.json`（gitignored）：
+
+| mode | 內容 |
+|------|------|
+| `release` | 一般版本（不開 Console） |
+| `debug` | 追加 `-DDEBUG_CONSOLE=1`：AllocConsole、`DBG()`、`\\.\pipe\ProjectDebug`（AI debug） |
+
+UI 右側有模式選項；切換模式會強制先 `make clean`，避免 Release/Debug 物件混用。
+命令列：`py BuildUI.py --build --mode debug`。
+
+## 一次建置的流程
+
+```
+0. cd 到專案根目錄
+1. 讀 MakePath.txt → mingw32-make.exe 完整路徑（找不到則查常見 MSYS2 路徑）
+2. 前置 toolchain bin/ 到 PATH
+3. （可選）make SHELL=cmd.exe clean
+4. py BuildUI.py --generate [--modules A,B]
+     - 掃描 Modules/*/*.module.ini → GeneratedModuleRegistry.cpp
+     - 掃描 Core/Services/UI/Pet/Tray + Modules → GeneratedBuild.mk
+     - 轉換 Test.png → GeneratedIcon.ico/.rc（內建 PNG 解碼，不需要 Pillow）
+     - 合併翻譯 → Translation/zh-TW.ini
+     - 產生 GeneratedVersion.rc
+5. make SHELL=cmd.exe [CXXFLAGS_EXTRA=-DDEBUG_CONSOLE=1]
+6. UI：Build / 執行 / 執行測試 / 清理
+```
+
+## 命令列等價物
+
+```cmd
+py BuildUI.py --generate [--modules A,B]
+py BuildUI.py --list-modules
+py BuildUI.py --build [--mode release|debug] [--clean] [--test]
+py BuildUI.py --test
+py BuildUI.py --clear        :: make distclean
+```
+
+## 編譯參數
+
 ```
 g++ -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode -c <file>.cpp -o <file>.o
 windres TranslationRes.rc -O coff -o TranslationRes.o
+windres GeneratedIcon.rc -O coff -o GeneratedIcon.o
 Link: -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows
-      -lws2_32 -lole32 (duplicated from LIBS + modules)
+      -lversion -liphlpapi -lcomdlg32
 ```
 
-### 警告
-- `Modules/RemoteControl/RemoteControlModule.h:9` → winsock2.h 在 windows.h 之後引入（`#warning Please include winsock2.h before windows.h`）— 無害
+## 注意事項
 
-### 34 個編譯單元
-main, HostApp, GeneratedModuleRegistry, Core(ConfigManager, InputManager, Logger, ModuleManager),
-Services(ChecksumService, ClipboardService, FileService, FileTransferService, NetworkService, TranslationService),
-UI(SettingsDialog), Pet(MainWindow, PetConfig),
-AutoKey(AutoKeyParser, AutoKeyModule, AutoKeyDialog),
-ChangeEC(ChangeECModule, ChangeECWindow, ChangeECLogic),
-Checksum(ChecksumModule),
-RemoteControl(RemoteControlModule, RemoteControlHook),
-RomCombiner(RomCombinerModule, RomCombinerWindow, RomCombinerLogic),
-RomSeparator(RomSeparatorModule, RomSeparatorWindow, RomSeparatorLogic),
-Template(TemplateModule, TemplateLogic, TemplateWindow)
-
-## 遇到的問題
-
-- `make clean` 在無 .o 檔時 exit 3（`mingw32-make: [Makefile:104: clean] Error 3 (ignored)`）— Build.bat 忽略此錯誤，後續仍正常
-- Makefile 無 `trim` target → trim 參數下 `make trim` 失敗但 script 忽略
-- winsock2.h 順序警告 — 因 `GeneratedModuleRegistry.cpp` include 順序造成
-
-## 後續建議
-
-- 可考慮在 Makefile 加入 `trim` target（`del *.o *.d`）
-- winsock2.h 順序可透過在 `RemoteControlModule.cpp` 優先引入 <winsock2.h> 解決
+- `make clean` 在無 `.o` 檔時會回報 ignored error，不影響後續步驟。
+- `make` 只在 `GeneratedBuild.mk` / `Translation/zh-TW.ini` 缺少或翻譯來源較新時
+  自動跑 `py BuildUI.py --generate`；新增/移除 `.cpp` 後請手動執行一次。
+- 沒有 `trim` target。
+- `winsock2.h` 必須在 `windows.h` 之前引入（見 §15 gotchas）。

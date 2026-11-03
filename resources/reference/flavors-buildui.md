@@ -1,7 +1,9 @@
 # BuildUI.py — 模組挑選器與載體 Flavor
 
-`BuildUI.bat`（或 `py BuildUI.py`）開一個勾選式建置工具：勾選要的模組、選一個載體，
-按 Build 就產生對應的 exe 行為組合。
+`BuildUI.vbs`（或 `py BuildUI.py`）開一個勾選式建置工具：勾選要的模組、選一個載體
+與建置模式，按 Build 就產生對應的 exe 行為組合。這是專案**唯一的建置入口**，
+舊的 `Build.bat` / `Build.py` / `Clear.bat` 已整合進來（codegen、clean、build、
+test、清理）。
 
 ## 概念
 
@@ -51,14 +53,37 @@ py BuildUI.py
 > `BuildUI.vbs` 只能有 ASCII 內容：Windows Script Host 沒看到 BOM 時會用 ANSI
 > 讀 `.vbs`，中文字串會變成編譯錯誤（`Expected end of statement`）。訊息文字請留英文。
 
-`BuildUI.py` 產生的子行程（`Build.py`、`mingw32-make`、`tasklist`、`taskkill`、
+`BuildUI.py` 產生的子行程（codegen、`mingw32-make`、`tasklist`、`taskkill`、
 `Project.exe`）一律帶 `CREATE_NO_WINDOW`：`pythonw` 沒有 Console，console 子行程
 若不加這個旗標會自己開一個空的黑視窗。
 
-1. 左側勾選模組（「全部編入」= 不加 `--modules`，行為同舊的 Build.bat）
-2. 右側選載體、Flavor 名稱
-3. `Build` → 寫 Flavor 檔 → `py Build.py --modules ...` → `mingw32-make SHELL=cmd.exe`
+1. 左側勾選模組（「全部編入」= 不加 `--modules`）
+2. 右側選建置模式（Release / Debug）、載體、Flavor 名稱
+3. `Build` → 寫 Flavor 檔 → `py BuildUI.py --generate` → `mingw32-make SHELL=cmd.exe`
 4. `執行` → `Project.exe --flavor <名稱>`
+
+## 建置模式（AI debug 保留）
+
+模式存在 `Config/BuildUI.json`（gitignored），UI 與命令列共用：
+
+```json
+{
+  "mode": "release",
+  "carrier": "pet",
+  "flavor": "Default",
+  "clean": true,
+  "all": true,
+  "modules": []
+}
+```
+
+| mode | 內容 |
+|------|------|
+| `release` | 一般版本 |
+| `debug` | `-DDEBUG_CONSOLE=1`：AllocConsole、`DBG()`、`\\.\pipe\ProjectDebug` |
+
+切換模式時工具會強制 `make clean`，避免 Release 與 Debug 物件混用。
+`last_built_mode` 由工具自己維護。
 
 產出物：
 
@@ -67,13 +92,16 @@ Config/Config_Flavor_<名稱>.json     { "mode": "tray", "modules": ["ChangeEC"]
 Flavors/Run_<名稱>.bat               cd 到專案根目錄後帶 --flavor 啟動
 ```
 
-兩者都 gitignored。最後一次勾選存在 `.agent/buildui_state.json`。
+兩者都 gitignored。建置設定（模式、載體、勾選）存在 `Config/BuildUI.json`。
 
 ## 命令列等價物
 
 ```cmd
-py Build.py --list-modules
-py Build.py --modules ChangeEC,Checksum
+py BuildUI.py --list-modules
+py BuildUI.py --generate --modules ChangeEC,Checksum
+py BuildUI.py --build [--mode debug] [--clean] [--test]
+py BuildUI.py --test
+py BuildUI.py --clear
 mingw32-make SHELL=cmd.exe
 
 Project.exe --flavor ChangeEC-tray

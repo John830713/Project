@@ -37,7 +37,7 @@ bool IsNewer(std::uint64_t candidate, std::uint64_t current);
 // True when the build at `candidatePath` should replace the one at
 // `currentPath`. Compares versions first; when both carry the same version —
 // which is what a plain `make` produces, because the resource is only rewritten
-// by Build.py — the more recently written file wins instead of refusing the
+// by BuildUI.py - the more recently written file wins instead of refusing the
 // update.
 bool IsNewerBuild(const std::wstring& candidatePath,
                   const std::wstring& currentPath);

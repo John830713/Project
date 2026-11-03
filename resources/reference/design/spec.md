@@ -20,7 +20,7 @@ Shutdown()          ← calls SaveConfig()
 
 ### Registration
 
-`Build.py` scans `Modules/*/*.module.ini` and generates:
+`BuildUI.py --generate` scans `Modules/*/*.module.ini` and generates:
 
 | Generated file | Content |
 |---|---|
@@ -35,7 +35,7 @@ Name=NetworkInfo         ; must match GetModuleName()
 Sources=NetworkInfoModule.cpp
 Headers=NetworkInfoModule.h
 Libraries=               ; extra linker flags, e.g. -liphlpapi
-Enabled=1                ; considered by Build.py for optional exclusion
+Enabled=1                ; considered by BuildUI.py for optional exclusion
 ```
 
 ### Pure-virtual requirements
@@ -241,16 +241,32 @@ window saves the config on every drag/opacity change.
 
 ## 4. Build System
 
-`Build.py` orchestrates:
+`BuildUI.py` is the single build entry point (the old `Build.py` / `Build.bat` /
+`Clear.bat` were folded into it). The UI adds module/carrier checkboxes, build
+mode, tests and cleanup on top of the same codegen. It orchestrates:
 
 1. **Scan** `Modules/*/*.module.ini` for module definitions
 2. **Scan** `Core/`, `Services/`, `UI/`, `Pet/`, `Modules/*/` for `*.cpp`
 3. **Generate** `GeneratedModuleRegistry.cpp` — include each module header, create `RegisterGeneratedModules()` with LoaderConfig filtering
 4. **Generate** `GeneratedBuild.mk` — `CPP_OBJS` list, `LIBS_EXTRA` concatenated from all module `.ini` files
-5. **Generate** `GeneratedIcon.*` — convert `Test.png` to `.ico` + `.rc`
+5. **Generate** `GeneratedIcon.*` — convert `Test.png` to `.ico` + `.rc` with a built-in PNG decoder (no Pillow dependency; Pillow is only a fallback)
 6. **Merge** translations — collect `*/lang/zh-TW.ini` into `Translation/zh-TW.ini`
+7. **Generate** `GeneratedVersion.rc` — timestamp version resource (see §10)
 
-Run `py Build.py` after adding/removing any `.cpp` file or module.
+Build mode lives in `Config/BuildUI.json` (`release` / `debug`); `debug` adds
+`-DDEBUG_CONSOLE=1` and switching modes forces `make clean`. Headless:
+
+```cmd
+py BuildUI.py --generate [--modules A,B]
+py BuildUI.py --build [--mode release|debug] [--clean] [--test]
+py BuildUI.py --test
+py BuildUI.py --clear          :: make distclean
+py BuildUI.py --list-modules
+```
+
+Run `py BuildUI.py --generate` after adding/removing any `.cpp` file or module.
+The `Makefile` calls the same command automatically when its generated files are
+missing or a translation source is newer.
 
 ---
 
@@ -336,7 +352,7 @@ Common control classes:
 
 ### Merge process
 
-`Build.py` collects all `*/lang/zh-TW.ini` files and merges them into a single `Translation/zh-TW.ini`. Each module adds its `Modules/<Name>/lang/zh-TW.ini` with section matching `GetModuleName()`. Pet translations live in `Pet/lang/zh-TW.ini` under `[Pet]` section.
+`BuildUI.py --generate` collects all `*/lang/zh-TW.ini` files and merges them into a single `Translation/zh-TW.ini`. Each module adds its `Modules/<Name>/lang/zh-TW.ini` with section matching `GetModuleName()`. Pet translations live in `Pet/lang/zh-TW.ini` under `[Pet]` section.
 
 ### Section naming convention
 
@@ -582,7 +598,7 @@ on-disk executable **while the old instance is still running**. Windows blocks w
 deleting a loaded image but allows renaming it — every swap is rename-based, so the pet and
 any RemoteControl session are never interrupted.
 
-### Version source (`Build.py` → `GeneratedVersion.rc`)
+### Version source (`BuildUI.py --generate` → `GeneratedVersion.rc`)
 
 Each build embeds an auto-generated VERSIONINFO: `FILEVERSION (YYYY, MMDD, HHMM, SS*100+seq)` packed into `a.b.c.d`, with a sequence suffix so two builds in the same second still compare as different. A build **without** a resource (old/partial builds) reads as `0.0.0.0` and is therefore replaceable by any versioned build. `GeneratedVersion.*` is gitignored and removed by `make distclean`.
 
@@ -598,7 +614,7 @@ Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers 
 | Peer is this very file | image path identical | "already running" notice, exit (never swaps a file over itself) |
 | Mutex set but peer path unqueryable | `QueryFullProcessImageNameW` fails | "already running" notice, exit |
 
-- **Comparison is version first, write time second** (`IsNewerBuild`). The VERSIONINFO is written by `Build.py`, not the linker, so a plain `make` (rebuild of changed sources without regenerating the resource) produces a *different binary with the same version number*. Version alone would call that "already running"; equal versions therefore fall back to the file's last-write time. `CopyFileW` preserves it, so an installed copy keeps the stamp of the build it came from.
+- **Comparison is version first, write time second** (`IsNewerBuild`). The VERSIONINFO is written by `BuildUI.py`, not the linker, so a plain `make` (rebuild of changed sources without regenerating the resource) produces a *different binary with the same version number*. Version alone would call that "already running"; equal versions therefore fall back to the file's last-write time. `CopyFileW` preserves it, so an installed copy keeps the stamp of the build it came from.
 
 - Peer discovery is a **Toolhelp32 process scan keyed on the executable name** (`FindPeerProcess`), not just the mutex — it detects builds that predate this feature. The PEB image path is fixed at process creation, so even after an earlier rename-swap the running instance still reports the original registered path: always the right swap target.
 - The notice is a self-owned `WS_POPUP` with its own message loop and a 2 s `WM_TIMER` (`MessageBox` has no built-in timeout). Strings come from the `[Update]` translation section via an injected `NoticeTranslator` (`TranslationService` is loaded early just for this).
@@ -695,11 +711,17 @@ watchdog tick runs for the window's whole life. The tray callback message is
 
 The icon comes from `LoadImageW(hInstance, MAKEINTRESOURCEW(IDI_APP_ICON), …)`
 (or `LoadIconW`), falling back to `IDI_APPLICATION`. `IDI_APP_ICON` is defined
-only in `Core/ResourceIds.h`; `Build.py` writes `GeneratedIcon.rc` as
+only in `Core/ResourceIds.h`; `BuildUI.py --generate` writes `GeneratedIcon.rc` as
 `#include "Core/ResourceIds.h"` + `IDI_APP_ICON ICON "GeneratedIcon.ico"`. That
 header is the single definition for both the RC (windres) and C++, so the old
 windres implicit auto-assignment (which made `#define IDI_APP_ICON 101` in a
 comment meaningless) no longer applies.
+
+PNG sources are converted by a built-in 8-bit PNG decoder + box-filter resizer
+that writes classic 32bpp BMP ICO entries (256/128/64/48/32/16). Pillow is no
+longer required — the old code silently skipped the icon when Pillow was
+missing, which is how a fresh checkout ended up linking an icon-less exe. The
+converted `GeneratedIcon.ico` is reused while the source image is unchanged.
 
 ### Menu & command IDs
 
@@ -930,7 +952,7 @@ Live verification was done against the real `Project.exe` and the real `D:\Tampe
 - Avoid `s_host`, `s_addr`, `s_net`, `s_imp`, `s_lh`, `s_impno` as identifiers — `inaddr.h` defines them as macros.
 - `Logger::WriteModuleLog` takes a wide source name (`kLogSource` is `const wchar_t*`).
 - Rebuilding requires stopping a running `Project.exe` first (`Permission denied` on link).
-- Translations can be module-scoped: `Modules/WebAgent/lang/zh-TW.ini` is merged by `Build.py`; config labels resolve through `Tr(L"Common", <label>)`.
+- Translations can be module-scoped: `Modules/WebAgent/lang/zh-TW.ini` is merged by `BuildUI.py --generate`; config labels resolve through `Tr(L"Common", <label>)`.
 
 ---
 

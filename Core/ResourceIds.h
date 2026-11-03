@@ -8,5 +8,5 @@
 
 #pragma once
 
-// Application icon (see Build.py: generate_icon_resource()).
+// Application icon (see BuildUI.py: generate_icon_resource()).
 #define IDI_APP_ICON 101

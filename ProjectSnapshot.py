@@ -17,8 +17,9 @@ IMPORTANT_FILES = [
     "HostApp.h",
     "HostApp.cpp",
     "Makefile",
-    "Build.py",
-    "Build.bat",
+    "BuildUI.py",
+    "BuildUI.vbs",
+    "BuildUI.bat",
     "ProjectName.txt",
     "TargetName.txt",
     "HostHint.txt",
@@ -382,8 +383,9 @@ def generate_summary() -> str:
 
     write_section(lines, "BUILD SUMMARY")
     lines.append(f"Makefile Exists : {(ROOT / 'Makefile').exists()}")
-    lines.append(f"Build.py Exists : {(ROOT / 'Build.py').exists()}")
-    lines.append(f"Build.bat Exists: {(ROOT / 'Build.bat').exists()}")
+    lines.append(f"BuildUI.py Exists : {(ROOT / 'BuildUI.py').exists()}")
+    lines.append(f"BuildUI.vbs Exists: {(ROOT / 'BuildUI.vbs').exists()}")
+    lines.append(f"BuildUI.bat Exists: {(ROOT / 'BuildUI.bat').exists()}")
     lines.append(f"GeneratedBuild.mk Exists: {(ROOT / 'GeneratedBuild.mk').exists()}")
     lines.append("")
     lines.append("Build Naming Rules:")

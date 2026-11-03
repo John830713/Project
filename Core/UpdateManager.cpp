@@ -336,7 +336,7 @@ bool IsNewerBuild(const std::wstring& candidatePath,
     }
 
     // Same version resource. That is normal for a plain `make`: the resource is
-    // written by Build.py, not by the linker, so a rebuild of changed sources
+    // written by BuildUI.py, not by the linker, so a rebuild of changed sources
     // keeps the previous version number. Fall back to the write time, which is
     // what actually differs between two such binaries.
     FILETIME candidateWritten{};

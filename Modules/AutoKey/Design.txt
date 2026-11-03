@@ -166,7 +166,7 @@ Traditional Chinese translation (zh-TW):
     Configurable key press automation.=可設定的按鍵自動化程式。
 
   CRITICAL: Translation keys must NOT have trailing spaces.
-  Build.py's parse_ini_sections() calls .strip() on both key and value.
+  BuildUI.py's parse_ini_sections() calls .strip() on both key and value.
   The C++ code does: Tr(L"AutoKey", L"▶ Start") + L" " + actionName
   (space added in C++, not in the translation value).
 

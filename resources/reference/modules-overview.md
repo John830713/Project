@@ -80,7 +80,7 @@ Every `*Types.h` includes only standard library headers. Never references Core o
 
 ## Build Integration
 
-- `Build.py` scans `Modules/*/*.module.ini`
+- `BuildUI.py --generate` scans `Modules/*/*.module.ini`
 - `GeneratedModuleRegistry.cpp` auto-registers all enabled modules
 - `HostApp.cpp:70` calls `RegisterGeneratedModules()`
 - `Enabled=0` in `.module.ini` excludes a module from build
@@ -91,7 +91,7 @@ Every `*Types.h` includes only standard library headers. Never references Core o
 2. Rename files and classes
 3. Update `*.module.ini` fields (`Name`, `Class`, `Sources`, `Headers`)
 4. Implement `IFeatureModule` + optionally `IDropActionProvider`
-5. Run `py Build.py` to regenerate registry
+5. Run `py BuildUI.py --generate` to regenerate registry
 
 ## Implementation Rules
 
@@ -111,9 +111,9 @@ Every `*Types.h` includes only standard library headers. Never references Core o
 ## Translation Conventions
 
 - Each module has its own lang file: `Modules/<Name>/lang/zh-TW.ini`
-- `Build.py` merges all modules' lang files into `Translation/zh-TW.ini` on each build
+- `BuildUI.py --generate` merges all modules' lang files into `Translation/zh-TW.ini` on each build
 - Sections: `[ModuleName]` for general UI + context menu labels, `[TabLabels]` for settings tab names, `[About]` for version/purpose strings
-- **Prefix+name pattern**: never put trailing space in translation key or value (`Build.py` strips both). Add space in C++: `Tr(L"AutoKey", L"▶ Start") + L" " + actionName`
+- **Prefix+name pattern**: never put trailing space in translation key or value (`BuildUI.py` strips both). Add space in C++: `Tr(L"AutoKey", L"▶ Start") + L" " + actionName`
 - Context menu parent prefix: if a module's context menu items need a parent prefix (like `"AutoKey ▶"`), the prefix is translated by `Tr()` and the space is added in C++
 
 ## Config File Conventions

@@ -6,20 +6,21 @@ Navigation: [INDEX.md](INDEX.md) (directory chain) · [resources/reference/proje
 
 ## Build (cmd.exe, not bash)
 
-- `Build.bat` = `make clean` → `py Build.py` → `make`, pauses. `Build.bat debug` / `make debug` adds `-DDEBUG_CONSOLE=1` (DEBUG_CONSOLE build).
-- Toolchain: `mingw32-make` is **not on PATH**. `Build.bat` reads the **full path to `mingw32-make.exe`** from `MakePath.txt` (no file: searches common MSYS2 paths), then prepends its bin dir to `PATH`. This machine: `D:\Program Files\MSYS2Portable\App\msys64\ucrt64\bin\mingw32-make.exe`.
-- `make` auto-runs `py Build.py` only when `GeneratedBuild.mk`/`Translation/zh-TW.ini` is missing (or translation sources are newer). **Run `py Build.py` yourself after adding/removing any `.cpp`/`.rc`/module** (otherwise new files are silently ignored).
-- `Build.py` compiles root `main.cpp`, `HostApp.cpp`, `GeneratedModuleRegistry.cpp`; **non-recursive** `*.cpp` in `Core|Services|UI|Pet|Tray`; and only files listed in a module's `Sources=`. New or unlisted files are silently ignored.
-- Every `py Build.py` rewrites `GeneratedVersion.rc` with timestamp version `YYYY.MMDD.HHMM.SS*100+seq` (monotonic, drives in-place update/relaunch). Never hand-edit.
+- One build tool: `BuildUI.vbs` (no console), `BuildUI.bat` (same, brief console flash) or `py BuildUI.py` (keeps a console for tracebacks). It owns codegen, clean, build, tests and the module/carrier checkbox UI; the old `Build.bat`, `Build.py` and `Clear.bat` were folded into it.
+- Toolchain: `mingw32-make` is **not on PATH**. `MakePath.txt` holds the **full path to `mingw32-make.exe`** (no file: `BuildUI.py` falls back to known MSYS2 paths), and the tool prepends its bin dir to `PATH` for every child. This machine: `D:\Program Files\MSYS2Portable\App\msys64\ucrt64\bin\mingw32-make.exe`.
+- Build modes live in `Config/BuildUI.json` (gitignored): `"mode": "release" | "debug"`. `debug` adds `-DDEBUG_CONSOLE=1` (AllocConsole + `DBG()` + the `\\.\pipe\ProjectDebug` pipe). Switching modes forces a `make clean` so Release/Debug objects never mix. CLI: `py BuildUI.py --build --mode debug`.
+- One build = `make clean` (optional) → `py BuildUI.py --generate` (codegen) → `make`. `make` auto-runs `py BuildUI.py --generate` only when `GeneratedBuild.mk` / `Translation/zh-TW.ini` is missing (or translation sources are newer). **Run `py BuildUI.py --generate` yourself after adding/removing any `.cpp`/`.rc`/module** (otherwise new files are silently ignored).
+- `BuildUI.py --generate` compiles root `main.cpp`, `HostApp.cpp`, `GeneratedModuleRegistry.cpp`; **non-recursive** `*.cpp` in `Core|Services|UI|Pet|Tray`; and only files listed in a module's `Sources=`. New or unlisted files are silently ignored.
+- Every codegen run rewrites `GeneratedVersion.rc` with timestamp version `YYYY.MMDD.HHMM.SS*100+seq` (monotonic, drives in-place update/relaunch). Never hand-edit.
 - Link fails with `Permission denied` only when the link target `Project.exe` itself is running — a copy started from another folder holds its own file and does not block the build. Launching a build while any copy runs does not open a second window (single instance is keyed on the image *name*, `Core/UpdateManager.cpp`): a build newer than the copy is hot-swapped into that copy's path (version first, last-write time when the versions are equal, so a plain `make` rebuild still updates), only the same file reports "already running". `BuildUI` checks both cases.
-- `make distclean` wipes all `Generated*` + `Translation/zh-TW.ini`. There is no `trim` target (`Build.bat trim` errors after a successful build).
-- `py Build.py --modules A,B` builds only those modules (unselected ones are left out of the registry and the object list); `--list-modules` prints the manifest inventory as JSON. Used by `BuildUI.py` (GUI: module checkboxes + carrier + build), see [resources/reference/flavors-buildui.md](resources/reference/flavors-buildui.md).
+- `make distclean` (UI: 清理 / `py BuildUI.py --clear`) wipes all `Generated*` + `Translation/zh-TW.ini`. There is no `trim` target.
+- `py BuildUI.py --generate --modules A,B` builds only those modules (unselected ones are left out of the registry and the object list); `--list-modules` prints the manifest inventory as JSON; `--build [--clean] [--test]`, `--test` and `--clear` are the headless equivalents of the UI buttons. See [resources/reference/flavors-buildui.md](resources/reference/flavors-buildui.md).
 - Carriers: `LoaderConfig::Mode {Pet, Tray, Window}` chosen by `Config_Loader.json` `mode` or `Project.exe --carrier <pet|tray|window>`; `--flavor <name>` loads `Config/Config_Flavor_<name>.json` instead. Tray/Window create the pet window hidden (tray + module lifecycle depend on it); Window adds `UI/ModuleLauncherWindow` listing every module context-menu item.
 
 ## Modules
 
-- `Modules/<Name>/<Name>.module.ini`: `Name` must equal directory name and main header `<Name>Module.h`; `Class` defaults to `<Name>Module`. Mismatches surface at generated-registry compile after `py Build.py`.
-- New module: copy `Modules/Template/`, rename files/class and update `Sources=`/`Headers=`, then `py Build.py`. `Enabled=0` excludes at build; `Config/Config_Loader.json` (`{mode, modules[]}`) filters which compiled modules register at runtime (missing/empty list = all). Runtime config/log use manifest `ConfigFile`/`LogFile` (under `Config/`, `Log/`).
+- `Modules/<Name>/<Name>.module.ini`: `Name` must equal directory name and main header `<Name>Module.h`; `Class` defaults to `<Name>Module`. Mismatches surface at generated-registry compile after `py BuildUI.py --generate`.
+- New module: copy `Modules/Template/`, rename files/class and update `Sources=`/`Headers=`, then `py BuildUI.py --generate`. `Enabled=0` excludes at build; `Config/Config_Loader.json` (`{mode, modules[]}`) filters which compiled modules register at runtime (missing/empty list = all). Runtime config/log use manifest `ConfigFile`/`LogFile` (under `Config/`, `Log/`).
 
 ## Tests & debug
 
@@ -32,9 +33,9 @@ Navigation: [INDEX.md](INDEX.md) (directory chain) · [resources/reference/proje
 
 ## Codegen, translations, icon
 
-- `py Build.py` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`, `GeneratedVersion.*`, `Translation/<lang>.ini`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored — never edit.
+- `py BuildUI.py --generate` → `GeneratedBuild.mk`, `GeneratedModuleRegistry.*`, `GeneratedIcon.*`, `GeneratedVersion.*`, `Translation/<lang>.ini`. All `Generated*` and `Translation/*.ini` (except `_src/`, `en.ini`) are gitignored — never edit.
 - English strings in code are translation keys for `Tr()`. Edit English first, then `_src/zh-TW.ini` (or `Pet/lang/`, `Modules/*/lang/`); merged into UTF-16 LE + BOM and embedded via `TranslationRes.rc`. `Translation/en.ini` is reference-only and never loaded. Module display names must go through `TranslationService::TrModuleLabel()`, not `GetDisplayName()`.
-- Icon: `Build.py` takes **first alphabetically** root image (`.png/.ico/.jpg/.jpeg/.bmp`, ignoring `Pet.png`/`GeneratedIcon.*`) — stray image silently changes app icon; `Test.png` intended. PNG conversion needs Pillow, otherwise the icon is skipped (warning only). `IDI_APP_ICON` defined once in `Core/ResourceIds.h`.
+- Icon: `BuildUI.py` takes **first alphabetically** root image (`.png/.ico/.jpg/.jpeg/.bmp`, ignoring `Pet.png`/`GeneratedIcon.*`) - stray image silently changes app icon; `Test.png` intended. PNG sources are converted by a built-in zlib/PNG decoder (no Pillow needed); Pillow is only a fallback for exotic layouts. `IDI_APP_ICON` defined once in `Core/ResourceIds.h`.
 
 ## Config files (gitignored, user-local)
 
