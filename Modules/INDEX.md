@@ -1,6 +1,6 @@
 # Modules
 
-Feature plugins, each implementing `IFeatureModule`. Auto-discovered at build time via `Build.py` scanning `*/*.module.ini`.
+Feature plugins, each implementing `IFeatureModule`. Auto-discovered at build time via `BuildUI.py --generate` scanning `*/*.module.ini`.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ See [resources/reference/modules-overview.md](../resources/reference/modules-ove
 
 ## Translations
 
-Every module can ship `lang/zh-TW.ini`; `py Build.py` merges `Translation/_src/`,
+Every module can ship `lang/zh-TW.ini`; `py BuildUI.py --generate` merges `Translation/_src/`,
 `Pet/lang/` and `Modules/*/lang/` into the embedded `Translation/zh-TW.ini`.
 Section conventions (English text in code is always the key):
 

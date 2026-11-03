@@ -26,7 +26,7 @@ Project-wide shared infrastructure. All upper layers depend on this.
 - `DEBUG_CONSOLE` macro enabled via `-DDEBUG_CONSOLE=1` in CXXFLAGS
 - When enabled: `AllocConsole()` at startup, `DBG(L"msg")` macro for output
 - When disabled (default): `DBG()` compiles to `((void)0)`
-- Quick enable: `mingw32-make debug` (clean rebuild) or `Build.bat -debug`
+- Quick enable: `py BuildUI.py --build --mode debug` (UI: Debug mode radio; switching modes forces a clean rebuild) or `mingw32-make SHELL=cmd.exe debug`
 - `DBG_OPEN()` called in `main.cpp::wWinMain`
 
 ## Context Menu Dispatch (ModuleManager)

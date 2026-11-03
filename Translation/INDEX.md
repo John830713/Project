@@ -12,7 +12,7 @@ Localization system. English text as key, merged translation files.
 ## How It Works
 
 1. Sources: `Translation/_src/{lang}.ini` (core) + `Modules/*/lang/{lang}.ini` (per-module)
-2. `Build.py` merges → `Translation/{lang}.ini` (UTF-16 LE with BOM)
+2. `BuildUI.py --generate` merges → `Translation/{lang}.ini` (UTF-16 LE with BOM)
 3. `TranslationRes.rc` embeds `Translation/zh-TW.ini` as RCDATA
 4. `TranslationService` loads the embedded data at runtime
 5. `Tr(section, key)` translates or falls back to English
@@ -21,7 +21,7 @@ Localization system. English text as key, merged translation files.
 
 1. Create `Translation/_src/{lang}.ini`
 2. Create `Modules/*/lang/{lang}.ini` for each module
-3. Run `py Build.py` — generates merged file
+3. Run `py BuildUI.py --generate` — generates merged file
 
 ## Referenced by
 
