@@ -556,7 +556,8 @@ void SettingsDialog::SetupTabs(HWND hwnd) {
         SendMessageW(m_hTab, TCM_INSERTITEM, (WPARAM)(i + 1), (LPARAM)&tie);
     }
 
-    tie.pszText = const_cast<wchar_t*>(L"Remote Init");
+    std::wstring remoteLabel = TranslationService::Get()->Tr(L"Settings", L"Remote Init");
+    tie.pszText = const_cast<wchar_t*>(remoteLabel.c_str());
     SendMessageW(m_hTab, TCM_INSERTITEM, (WPARAM)(1 + m_modules.size()), (LPARAM)&tie);
 
     m_currentTab = 0;

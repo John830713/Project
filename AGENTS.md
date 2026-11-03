@@ -23,9 +23,9 @@ Navigation: [INDEX.md](INDEX.md) (directory chain) · [resources/reference/proje
 
 ## Tests & debug
 
-- `mingw32-make SHELL=cmd.exe test` builds **and runs** 9 EXEs (not part of `make all`). **`SHELL=cmd.exe` is mandatory** (test/clean recipes use `for %%t`/`del`; MSYS sh will error).
+- `mingw32-make SHELL=cmd.exe test` builds **and runs** 10 EXEs (not part of `make all`). **`SHELL=cmd.exe` is mandatory** (test/clean recipes use `for %%t`/`del`; MSYS sh will error).
 - New tests under `Debug/` are **not auto-discovered**: add a hardcoded Makefile rule, append the exe to `TEST_TARGETS`, and add it to `resources/tools/local/run-tests.ps1`. Tests compile real sources as units — keep Console/DBG out of what they link.
-- Quick runner: `powershell -ExecutionPolicy Bypass -File resources\tools\local\run-tests.ps1 [-Filter <name>] [-Rebuild]` (prepends toolchain PATH; hardcodes `D:\Project` and the MSYS2Portable path — edit if the checkout moves). Names: AutoKey, Tooltip, DebugState, MenuOrder, UpdateManager, Clipboard, Disconnect, Diagnostics, WebAgent.
+- Quick runner: `powershell -ExecutionPolicy Bypass -File resources\tools\local\run-tests.ps1 [-Filter <name>] [-Rebuild]` (prepends toolchain PATH; hardcodes `D:\Project` and the MSYS2Portable path — edit if the checkout moves). Names: AutoKey, Tooltip, DebugState, MenuOrder, UpdateManager, Clipboard, Disconnect, Diagnostics, WebAgent, RemoteInit.
 - DEBUG_CONSOLE build exposes AI-drivable pipe `\\.\pipe\ProjectDebug`: one UTF-16LE command per connection, returns captured `DBG()` output. Commands: `status`, `modules`, `mod <name> [config|log|cmd <id>]`, `log <category> [n]`, `tray status|show|hide|reset|killwindow`, `quit` (`quit` replies before exit).
 - WebAgent serves browser bridge over HTTP (default `0.0.0.0:8921`; `/status`, `/dashboard`). Inert if `ResourceRoot` (`D:\Tampermonkey`) missing: no listener, `IsAvailable()` hides menu group/settings tab (machines without JS tree appear as if module not shipped).
 - Crash handlers in `main.cpp` append to `Log/Crash.txt` (SEH, uncaught C++, `std::terminate`); `Log/*.txt` is written in Release too, but `DBG()`/`debug_log.txt` exist only in DEBUG_CONSOLE builds. Read `design/debugging-guide.md` and the silent-exit/hang playbooks before chasing a crash.

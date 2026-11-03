@@ -19,7 +19,6 @@ private:
     static void DrawCopyGlyph(HDC dc, int x, int y, int w, int h);
     void InitNetworkTab(HWND hwnd);
     void InitRemoteTab(HWND hwnd);
-    void RefreshRemoteTab(HWND hwnd);
     void OnRemoteCommand(HWND hwnd, WPARAM wParam);
 
     HWND m_hwnd;

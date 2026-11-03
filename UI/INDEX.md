@@ -6,8 +6,8 @@ Shared UI components. Contains the settings dialog used by both pet config and m
 
 | File | Role |
 |------|------|
-| `SettingsDialog.h/cpp` | Modal settings window with Pet tab + per-module tabs |
-| `NetworkInfoDialog.h/cpp` | Network adapter/IP viewer — lists active adapters with copy-to-clipboard |
+| `SettingsDialog.h/cpp` | Modal settings window with Pet tab + per-module tabs + `Remote Init` tab (last index) |
+| `NetworkInfoDialog.h/cpp` | Two-tab dialog: network adapter/IP viewer (copy-to-clipboard) + "Remote Control Init" tab (RDP/WinRM checkboxes, backup/apply/restore via `RemoteInitService`) |
 
 ## SettingsDialog Rules
 

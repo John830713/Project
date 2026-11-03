@@ -19,6 +19,7 @@ $tests = [ordered]@{
     Disconnect   = "Debug/RemoteControl/DisconnectTest.exe"
     Diagnostics  = "Debug/RemoteControl/DiagnosticsTest.exe"
     WebAgent     = "Debug/WebAgent/WebAgentTest.exe"
+    RemoteInit   = "Debug/Services/RemoteInitTest.exe"
 }
 
 if ($Help) {
@@ -28,7 +29,7 @@ Usage: .\run-tests.ps1 [options]
 Options:
   -Filter <name>   Run only matching tests (AutoKey, Tooltip, DebugState,
                    MenuOrder, UpdateManager, Clipboard, Disconnect, Diagnostics,
-                   WebAgent)
+                   WebAgent, RemoteInit)
   -Rebuild         Rebuild test executables first (mingw32-make SHELL=cmd.exe test)
   -Help            Show this help
 

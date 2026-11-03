@@ -549,7 +549,7 @@ The host pointer lets tray commands reach `HostApp` state
 
 ### Test infrastructure
 
-- **9 test targets** built via `make test` (not included in `make all`)
+- **10 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
@@ -566,6 +566,7 @@ The host pointer lets tray commands reach `HostApp` state
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
 | UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 32 — version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | 35 — dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
+| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | 37 — environment probe, default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
@@ -710,6 +711,7 @@ shell renders it):
 Show Pet / Hide Pet     — toggle pet visibility (double-click also toggles)
 Settings                — open the pet settings dialog
 Reset Pet Window        — recreate the pet window in-process
+Remote Control Init...  — elevate, back up, then apply the checked RDP/WinRM items (§15)
 ---
 <module groups>         — GetMenuGroups(), one submenu per module
 ---
@@ -929,3 +931,61 @@ Live verification was done against the real `Project.exe` and the real `D:\Tampe
 - `Logger::WriteModuleLog` takes a wide source name (`kLogSource` is `const wchar_t*`).
 - Rebuilding requires stopping a running `Project.exe` first (`Permission denied` on link).
 - Translations can be module-scoped: `Modules/WebAgent/lang/zh-TW.ini` is merged by `Build.py`; config labels resolve through `Tr(L"Common", <label>)`.
+
+---
+
+## 15. Remote Init (RDP / WinRM) (`Services/RemoteInitService`)
+
+One-shot "make this machine remotely controllable" helper. It lives in `Services/` rather than `Modules/` because it has no module lifecycle, config file, or menu group — it is a technical service the existing dialogs and tray menu call directly.
+
+### Two layers
+
+| File | Responsibility |
+|------|----------------|
+| `Services/ProcessRunner.h/cpp` | `CreateProcessW` on `cmd.exe /c <args>` with `CREATE_NO_WINDOW`, pipes for stdout+stderr, 60 s default timeout, `IsElevated()`, `RestartElevated()` (ShellExecuteEx `runas`), `GetProductName()` / `IsWindowsHome()` |
+| `Services/RemoteInitService.h/cpp` | State probe, checkbox list, JSON backup, restore, apply |
+
+Every change is expressed as a plain command (`reg add`, `netsh advfirewall`, `sc config`, `winrm quickconfig`, `net localgroup`) so the exact same path works for RDP, WinRM, firewall and account groups. `ProcessRunner` is the only place that knows how to launch them.
+
+### State probe (`CheckEnvironment`)
+
+`RemoteInitStatus` records: elevation, Windows Home, product name, network category, `Terminal Server\fDenyTSConnections`, `WinStations\RDP-Tcp\UserAuthentication`, `Lsa\LimitBlankPasswordUse`, WinRM service/`Start` value, existence of the two firewall rules, and RDP group membership.
+
+- Network category uses COM `INetworkListManager` (`IID_INetworkListManager`); Mingw headers lack `IID_NetworkListManager` and `NLM_NETWORK_CATEGORY_DOMAIN` — use the numeric value `2` for domain.
+- The RDP group name is resolved with `LookupAccountSidW(WinBuiltinRemoteDesktopUsersSid)` so it works on non-English Windows.
+- Firewall rules are queried through `netsh advfirewall firewall show rule name=...`, not the COM firewall API.
+
+### Checkbox list (`GetDefaultItems`)
+
+Seven stable ids, in order: `rdp`, `nla`, `rdp_firewall`, `winrm`, `winrm_firewall`, `rdp_users`, `blankpass`.
+
+- Items already satisfied start unchecked (nothing to do).
+- `rdp` is not selectable on Home editions (no RDP server).
+- `blankpass` (`LimitBlankPasswordUse=0`) is **always** unchecked; applying it emits a `[WARN]` log line.
+- The returned list is regenerated after every apply/restore, so the UI reflects reality instead of remembered state.
+
+Firewall rule names are `RemoteInit-RDP-3389` / `RemoteInit-WinRM-5985` (`RemoteInitService::kRdpRuleName` / `kWinrmRuleName`), created with `dir=in action=allow`.
+
+### Backup / restore / apply
+
+- `CreateBackup` writes `Log/RemoteInit/backup_<YYYYMMDD_HHMMSS>.json` through `FileService`. The JSON is assembled and parsed by hand — a small key scan, no JSON library — because the project has no JSON dependency in core services.
+- `RestoreBackup` re-applies the seven registry/firewall values stored in the file, then removes the two rules if they were absent.
+- `ApplySelected` walks the checked + selectable items in list order and returns `RemoteInitResult{allOk, logs}`. Each step appends a human-readable line; partial failure keeps going and reports `allOk = false`.
+- Without elevation `ApplySelected` refuses and logs "需要以系統管理員身分執行才能套用設定"; callers check `isElevated` first.
+
+### Entry points
+
+- **Tray**: `Remote Control Init...` (`ID_TRAY_REMOTE_INIT`, label via `Tr(L"Tray", ...)`) shows the probe summary, offers `RestartElevated` when not elevated, then backups + applies the default list.
+- **Network info dialog**: second tab "遠端控制初始化" (`NetworkInfoDialog::InitRemoteTab`) with one checkbox per item plus 重新檢查 / 備份目前設定 / 從備份還原 / 套用所選項目.
+- **Settings dialog**: `Remote Init` tab at index `1 + modules.size()` (`__remoteinit__<id>` control keys map back to item ids).
+
+### Tests
+
+`Debug/Services/RemoteInitTest.cpp` (37 assertions) links `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp` and covers the environment probe, default checkbox list, backup JSON round-trip, and the elevation guard. It must not pull in `Console`/`DBG`, so the test EXE stays headless.
+
+### Gotchas
+
+- Every apply/restore operation needs an elevated process; a `DEBUG_CONSOLE` build started without UAC silently reports failures instead of elevating itself.
+- `RemoteInitService` writes only under `Log/`, which is gitignored — do not move backups to `Config/` (that would make them user-visible state accidentally committed on a fresh clone).
+- Re-running the tray action always creates a new backup file; there is no pruning. Clean `Log/RemoteInit/` manually if it grows.
+- `netsh` output is localised, so rule existence is judged by `exitCode`/`Ok()`, never by matching English text.
