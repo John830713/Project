@@ -63,6 +63,12 @@ std::wstring PreservedArguments() {
     return out;
 }
 
+bool FileExists(const std::wstring& path) {
+    if (path.empty()) return false;
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 // Executable path out of a Run value: quoted, or everything before the first
 // space.
 std::wstring CommandPath(const std::wstring& command) {
@@ -122,9 +128,14 @@ bool AutoStart::IsEnabled() {
     RegCloseKey(key);
 
     if (stored.empty()) return false;
-    const std::wstring self = ModulePath();
-    if (self.empty()) return false;
-    return _wcsicmp(CommandPath(stored).c_str(), self.c_str()) == 0;
+
+    // The flag describes the app, not the file that happens to be running: the
+    // value name is derived from the executable name, so any entry under it
+    // means Windows will start *this* app at sign-in. Comparing the full path
+    // would make a second copy (a dev build next to the installed one) report
+    // "off" and every PetConfig::Save from that copy would delete the entry.
+    // A stale target (file gone) still counts as off so Save can clean it up.
+    return FileExists(CommandPath(stored));
 }
 
 bool AutoStart::SetEnabled(bool enabled) {
@@ -138,10 +149,20 @@ bool AutoStart::SetEnabled(bool enabled) {
     const std::wstring name = ValueName();
     LONG rc = ERROR_SUCCESS;
     if (enabled) {
+        // Never hijack a registration that still works: a copy running from a
+        // different folder (dev build, portable copy) must leave the installed
+        // app's entry alone. Taking over on purpose is untick + Save, then
+        // tick + Save, which deletes the old value first.
+        const std::wstring existing = ReadValue(key, name);
+        if (FileExists(CommandPath(existing))) {
+            RegCloseKey(key);
+            return true;
+        }
+
         const std::wstring command = Command();
-        // Rewrite only when the entry is missing or stale (exe moved, switches
-        // changed); the writers call this on every PetConfig::Save.
-        if (ReadValue(key, name) != command) {
+        // Missing or stale (target deleted) entry, or the path came back at a
+        // different location: (re)write it.
+        if (existing != command) {
             rc = RegSetValueExW(
                 key, name.c_str(), 0, REG_SZ,
                 reinterpret_cast<const BYTE*>(command.c_str()),

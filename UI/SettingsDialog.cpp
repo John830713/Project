@@ -247,7 +247,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         MapWindowPoints(m_hTab, hwnd, (POINT*)&tabRect, 2);
         if (PtInRect(&tabRect, pt)) {
             int wDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-            int tabCount = 1 + (int)m_modules.size();
+            int tabCount = 1 + (int)m_modules.size() + 1;  // Pet + modules + Remote Init
             int sel = TabCtrl_GetCurSel(m_hTab);
             int newSel = (wDelta > 0) ? sel - 1 : sel + 1;
             if (newSel >= 0 && newSel < tabCount) {
@@ -857,8 +857,11 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
 }
 
 void SettingsDialog::ReadFieldsFromControls() {
-    int tabCount = 1 + (int)m_modules.size();
-    if (m_currentTab < 0 || m_currentTab >= tabCount) return;
+    // Config tabs only: Pet + one per module. The Remote Init tab (last) has
+    // action checkboxes, not config values, and m_editedValues has no slot for
+    // it - stop before indexing with its tab number.
+    int configTabCount = 1 + (int)m_modules.size();
+    if (m_currentTab < 0 || m_currentTab >= configTabCount) return;
 
     std::map<std::wstring, std::wstring>* target = nullptr;
     if (m_currentTab == 0) {

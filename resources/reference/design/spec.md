@@ -214,26 +214,45 @@ struct ConfigFieldDefinition {
 `SettingsDialog` auto-generates the UI from `GetConfigDefinitions()`:
 - Tab 0 = Pet config (static layout)
 - Tab 1..N = per-module tabs (dynamic layout)
+- Tab N+1 = Remote Init (action checkboxes, not config values)
 - Bool → checkbox, Int/String → edit box (Int with trackbar), Directory → edit + browse button
 - Scrollbar if fields exceed visible area
+
+Both tab kinds are seeded before the first render: module tabs from `GetValue()`,
+the Pet tab from `PetConfig::Load()` **on top of every key from
+`PetConfig::GetDefinitions()`**. The definition sweep exists because a key missing
+from the seed map silently renders as its *definition default*; `autoStart` shipped
+like that, so an enabled autostart entry showed as unchecked and the next Save
+deleted it. Any new Pet key must be added to `PetConfig::Load()`/the seed map
+together with its definition.
+
+`ReadFieldsFromControls()` copies back only the controls of the **active** tab:
+Pet, or the module that tab belongs to. `OnSave` then writes every tab from the
+in-memory maps, so switching tabs never loses edits and saving from one tab cannot
+reset the others. `OnCancel` only rolls back the two live-preview values (opacity,
+scale) and never touches the registry.
 
 ### Start with Windows
 
 Tab 0 ends with a `Start with Windows` checkbox. It maps to `autoStart` in
 `Config_Pet.ini`, but the **registry is the source of truth**: `PetConfig::Load()`
-asks `Core/AutoStart` whether the per-user Run entry
-(`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value = exe base name)
-exists *and* points at this executable. `PetConfig::Save()` mirrors the flag back
-into that entry (no-op when it already matches), which matters because the pet
-window saves the config on every drag/opacity change.
+asks `Core/AutoStart`, which treats the per-user Run entry
+(`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value = exe base name) as
+enabled when the value exists and its executable is still on disk.
 
 - No admin rights, no Startup-folder shortcut; unticking deletes the value.
-- The registered command is `"<exe>"` plus the `--flavor`/`--carrier` switches the
-  process was started with (`--reload-wait` is never persisted), so the boot
-  reproduces the mode the user was in when they ticked the box.
-- Two copies of the app share one value name (the exe name), so the path check
-  decides which copy currently owns the entry; enabling it from the other copy
-  takes it over.
+- The check is **app-level, not file-level**: a dev build and the installed copy
+  share the value name, so running the other copy does not flip the checkbox to
+  "off" (and cannot make `PetConfig::Save()` - which the pet window calls on every
+  drag - delete the entry).
+- `SetEnabled(true)` leaves a working registration untouched instead of rewriting
+  it, so a copy started from another folder cannot take over the installed app's
+  autostart either. Taking over on purpose = untick + Save (deletes), then tick +
+  Save (writes the running exe).
+- When the entry is missing or stale, the written command is `"<exe>"` plus the
+  `--flavor`/`--carrier` switches the process was started with (`--reload-wait` is
+  never persisted), so the boot reproduces the mode the user was in.
+- A stale entry whose target file is gone reads as off; the next Save removes it.
 - If the registry rejects the write (policy), `SettingsDialog::OnSave` shows a
   warning instead of leaving a checkbox that silently springs back.
 
@@ -637,7 +656,7 @@ The point of an in-place update is that double-clicking a newer build makes the 
 - The spawned child sees `--reload-wait` in `pCmdLine` → `SetReloadWaitRequested(true)` → `BeginSession(..., waitForHandoff=true)` retries the single-instance mutex 40×150 ms (≈6 s) for the old instance to release it, instead of bailing with "already running". It then claims primary and runs the new build.
 - `PollReloadRequest` waits on the held handle directly (not `OpenEventW` by name); `SignalReload`'s `CreateEventW` returns the already-open object. This is why the primary must hold the event open — otherwise the signal is lost.
 
-Verified end-to-end by `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid runs from the registered path with the newer version, `Log/Main.txt` records the relaunch, and the updater process exits.
+Verified end-to-end by `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid runs from the registered path with the newer version, `Log/Main.txt` records the relaunch, and the updater process exits. Re-verified against the real install (`D:\Program Files\Project`) on 2026-11-04: launching the newer dev build replaced the installed exe, the installed instance relaunched from its own path with the new version, and the `*.old` backup was cleaned up by that relaunch.
 
 ### Resume state (`RemoteControlModule`)
 
