@@ -109,6 +109,16 @@ LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) {
         body = "  (no exception record)\n";
     }
 
+    // The faulting instruction is often inside a library function (std::locale,
+    // stream buffering), so the exception address alone names no app code. The
+    // return addresses here can be mapped afterwards with nm/addr2line.
+    void* frames[32] = {};
+    const USHORT frameCount = RtlCaptureStackBackTrace(1, 32, frames, nullptr);
+    body += "  stack:\n";
+    for (USHORT i = 0; i < frameCount; ++i) {
+        body += "    #" + std::to_string(i) + " " + HexAddress(frames[i]) + "\n";
+    }
+
     AppendCrashReport("SEH exception", body);
     return EXCEPTION_CONTINUE_SEARCH;
 }
