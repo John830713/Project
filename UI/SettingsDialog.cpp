@@ -425,8 +425,14 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             std::vector<ConfigFieldDefinition> defs;
             if (m_currentTab == 0)
                 defs = PetConfig::GetDefinitions();
-            else
+            else if (m_currentTab > 0 && m_currentTab <= (int)m_modules.size())
                 defs = m_modules[m_currentTab - 1]->GetConfigDefinitions();
+            else
+                // The Remote Init tab creates checkboxes with ids 10000+i, which
+                // land in the browse range (BROWSE_BTN_BASE = 3000). Without this
+                // guard m_modules[m_currentTab - 1] indexed past the end and the
+                // virtual GetConfigDefinitions() call crashed (0xC0000005).
+                return 0;
             if (fieldIdx >= defs.size()) return 0;
             if (defs[fieldIdx].type != ConfigValueType::Directory) return 0;
             wchar_t currentPath[MAX_PATH] = {};
