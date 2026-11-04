@@ -1,7 +1,7 @@
 CXX = g++
 RC = windres
-CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode $(CXXFLAGS_EXTRA)
-LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -loleaut32 -luuid -lwinmm -mwindows -lversion
+CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode -D__USE_MINGW_ANSI_STDIO=1 -D_CRT_SECURE_NO_WARNINGS $(CXXFLAGS_EXTRA)
+LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -loleaut32 -luuid -lwinmm -mwindows -lversion -lstdc++fs
 # Libraries used by always-compiled core/UI code must not depend on a module
 # being selected: UI/NetworkInfoDialog needs iphlpapi, the module dialogs use
 # comdlg32, RemoteInitService needs netapi32 (local groups / join info) and

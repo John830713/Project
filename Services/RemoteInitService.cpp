@@ -282,8 +282,8 @@ const IID kNetFwPolicy2Iid = {
 FirewallInfo QueryFirewallInfo() {
     FirewallInfo info;
 
-    bool comInitialized = SUCCEEDED(
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+    HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool comInitialized = (hrCom == S_OK);
 
     INetFwPolicy2* policy = nullptr;
     HRESULT hr = CoCreateInstance(kNetFwPolicy2Clsid, nullptr, CLSCTX_ALL,
@@ -384,8 +384,8 @@ bool LocalGroupHasUser(const std::wstring& group, const std::wstring& userName) 
 }
 
 std::wstring QueryNetworkCategory() {
-    bool comInitialized = SUCCEEDED(
-        CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE));
+    HRESULT hrCom = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    bool comInitialized = (hrCom == S_OK);
     std::wstring category = L"未知";
 
     INetworkListManager* manager = nullptr;

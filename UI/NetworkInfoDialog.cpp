@@ -793,6 +793,7 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
         }
         for (size_t i = 0; i < m_remoteItems.size(); ++i) {
             for (auto h : m_remoteCtrls) {
+                if (!h || !IsWindow(h)) continue;
                 if (GetWindowLongPtrW(h, GWLP_ID) == (LONG_PTR)(ID_REMOTE_ITEM_BASE + (int)i)) {
                     m_remoteItems[i].checked = (SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED);
                     break;

@@ -170,14 +170,14 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
             WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
             W - BTN_W * 2 - MARGIN * 2, H - BTN_BOTTOM - BTN_H - 40,
             BTN_W, BTN_H,
-            hwnd, (HMENU)1, GetModuleHandleW(nullptr), nullptr);
+            hwnd, (HMENU)(INT_PTR)1, GetModuleHandleW(nullptr), nullptr);
 
         CreateWindowW(L"BUTTON",
             TranslationService::Get()->Tr(L"Settings", L"Cancel").c_str(),
             WS_CHILD | WS_VISIBLE,
             W - BTN_W - MARGIN, H - BTN_BOTTOM - BTN_H - 40,
             BTN_W, BTN_H,
-            hwnd, (HMENU)2, GetModuleHandleW(nullptr), nullptr);
+            hwnd, (HMENU)(INT_PTR)2, GetModuleHandleW(nullptr), nullptr);
         return 0;
     }
 
@@ -375,13 +375,15 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 }
                 // sync checkbox states
                 for (size_t i = 0; i < m_fieldControls.size(); ++i) {
-                    auto kit = m_controlKeys.find(m_fieldControls[i]);
+                    HWND hCtrl = m_fieldControls[i];
+                    if (!IsWindow(hCtrl)) continue;
+                    auto kit = m_controlKeys.find(hCtrl);
                     if (kit == m_controlKeys.end()) continue;
                     if (kit->second.find(L"__remoteinit__") == 0) {
                         std::wstring id2 = kit->second.substr(wcslen(L"__remoteinit__"));
                         for (auto& it : m_remoteInitItems) {
                             if (it.id == id2) {
-                                it.checked = (SendMessageW(m_fieldControls[i], BM_GETCHECK, 0, 0) == BST_CHECKED);
+                                it.checked = (SendMessageW(hCtrl, BM_GETCHECK, 0, 0) == BST_CHECKED);
                                 break;
                             }
                         }
@@ -639,7 +641,7 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
             lbl += L"  -  ";
             lbl += it.desc;
             HWND hChk = CreateWindowW(L"BUTTON", lbl.c_str(), flags,
-                MARGIN, y, rc.right - MARGIN * 2, 22, hwnd, (HMENU)(10000 + (int)i), GetModuleHandleW(nullptr), nullptr);
+                MARGIN, y, rc.right - MARGIN * 2, 22, hwnd, (HMENU)(INT_PTR)(10000 + i), GetModuleHandleW(nullptr), nullptr);
             if (m_hFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)m_hFont, TRUE);
             if (it.checked && it.selectable) SendMessageW(hChk, BM_SETCHECK, BST_CHECKED, 0);
             m_fieldControls.push_back(hChk);
@@ -664,6 +666,9 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
         m_fieldControls.push_back(hRestore);
         m_fieldControls.push_back(hRefresh);
         m_fieldControls.push_back(hApply);
+        m_scrollPos = 0;
+        UpdateScrollBar();
+        RepositionFields();
         return;
     }
 
@@ -838,7 +843,7 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
                 TranslationService::Get()->Tr(L"Settings", L"Manage Actions...").c_str(),
                 WS_CHILD | WS_VISIBLE,
                 MARGIN, btnY, 160, 28,
-                hwnd, (HMENU)1000, GetModuleHandleW(nullptr), nullptr);
+                hwnd, (HMENU)(INT_PTR)1000, GetModuleHandleW(nullptr), nullptr);
             DBG(L"PopulateFields: created Manage btn hwnd=%p at y=%d", (void*)hBtn, btnY);
             if (m_hFont && hBtn) SendMessageW(hBtn, WM_SETFONT, (WPARAM)m_hFont, TRUE);
             if (hBtn) {
@@ -913,6 +918,13 @@ void SettingsDialog::ReadFieldsFromControls() {
 void SettingsDialog::RepositionFields() {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
+
+    // Remote Init tab has custom layout; skip auto-repositioning to avoid
+    // corrupting manually placed controls.
+    int tabCount = 1 + (int)m_modules.size() + 1;
+    if (m_currentTab == 1 + (int)m_modules.size() && tabCount > 0) {
+        return;
+    }
 
     size_t total = m_fieldLabels.size();
     if (m_fieldControls.size() > total) total = m_fieldControls.size();

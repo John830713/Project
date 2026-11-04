@@ -36,7 +36,7 @@ enum {
 
 std::wstring Format(const wchar_t* fmt, unsigned long value) {
     wchar_t buffer[64] = {};
-    swprintf_s(buffer, fmt, value);
+    swprintf(buffer, 64, fmt, value);
     return buffer;
 }
 

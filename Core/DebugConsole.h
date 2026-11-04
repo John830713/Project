@@ -44,7 +44,7 @@ inline void DebugConsoleClose() {
         if (DbgFileRef()) { fwprintf(DbgFileRef(), L"[DBG] " fmt L"\n", ##__VA_ARGS__); fflush(DbgFileRef()); } \
         if (DbgCaptureActive()) { \
             wchar_t _dbgBuf[4096]; \
-            swprintf_s(_dbgBuf, L"[DBG] " fmt L"\n", ##__VA_ARGS__); \
+            swprintf(_dbgBuf, 4096, L"[DBG] " fmt L"\n", ##__VA_ARGS__); \
             DbgCaptureBuffer() += _dbgBuf; \
         } \
         fflush(stdout); \
