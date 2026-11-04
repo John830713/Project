@@ -114,8 +114,8 @@ INT_PTR SettingsDialog::Show() {
     SetFocus(m_hwnd);
 
     MSG msg = {};
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        if (!IsWindow(m_hwnd)) break;
+    BOOL gotMessage = TRUE;
+    while (IsWindow(m_hwnd) && (gotMessage = GetMessageW(&msg, nullptr, 0, 0)) > 0) {
         if (msg.message == WM_KEYDOWN && msg.wParam == 'A' &&
             (GetKeyState(VK_CONTROL) & 0x8000)) {
             HWND hFocus = GetFocus();
@@ -132,13 +132,19 @@ INT_PTR SettingsDialog::Show() {
         DispatchMessageW(&msg);
     }
 
-    // The loop also ends when GetMessage returns 0 (WM_QUIT), e.g. when the
-    // Remote Init tab posts a quit for the elevated restart. That leaves the
-    // window alive while this stack object is about to die, so a later click
-    // would reach a dangling SettingsDialog* through GWLP_USERDATA (crash in
-    // OnSave -> ReadFieldsFromControls). Close the window before returning.
+    // The loop ends when the window dies (Save/Cancel) or when GetMessage
+    // returns 0 for a WM_QUIT this nested loop consumed. In the second case the
+    // window is still alive while this stack object is about to be destroyed,
+    // so a later click would reach a dangling SettingsDialog* through
+    // GWLP_USERDATA (the OnSave -> ReadFieldsFromControls crash). Close the
+    // window before returning.
     if (IsWindow(m_hwnd)) DestroyWindow(m_hwnd);
     m_hwnd = nullptr;
+
+    // GetMessage returns 0 on WM_QUIT, which this nested loop just consumed.
+    // Put it back so the outer loop still quits: the elevated restart, the
+    // update relaunch and the tray quit all rely on that quit reaching it.
+    if (gotMessage == 0) PostQuitMessage(static_cast<int>(msg.wParam));
 
     if (IsWindow(m_parent)) {
         EnableWindow(m_parent, TRUE);
