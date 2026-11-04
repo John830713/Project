@@ -122,7 +122,7 @@ LoaderConfig::Data LoaderConfig::Load(const std::wstring& flavor) {
     std::wstring path = GetConfigPath(flavor);
     std::ifstream file(path.c_str());
     if (!file.is_open()) {
-        DBG(L"LoaderConfig: %s not found, using defaults", path.c_str());
+        DBG(L"LoaderConfig: %ls not found, using defaults", path.c_str());
         return data;
     }
     std::stringstream buf;
@@ -152,7 +152,7 @@ LoaderConfig::Data LoaderConfig::Load(const std::wstring& flavor) {
         }
     }
 
-    DBG(L"LoaderConfig: mode=%s modules=%zu",
+    DBG(L"LoaderConfig: mode=%ls modules=%zu",
         ModeToKey(data.mode),
         data.enabledModules.size());
 
@@ -188,8 +188,8 @@ void LoaderConfig::Save(const Data& data, const std::wstring& flavor) {
     if (file.is_open()) {
         file << content;
         file.close();
-        DBG(L"LoaderConfig: saved to %s", path.c_str());
+        DBG(L"LoaderConfig: saved to %ls", path.c_str());
     } else {
-        DBG(L"LoaderConfig: FAILED to save to %s", path.c_str());
+        DBG(L"LoaderConfig: FAILED to save to %ls", path.c_str());
     }
 }
