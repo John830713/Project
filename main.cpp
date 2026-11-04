@@ -105,6 +105,29 @@ LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) {
                      rec->ExceptionInformation[0])).c_str(),
                  GetCurrentThreadId());
         body = detail;
+
+        // The image base turns stack frames into RVAs, and the faulting RVA
+        // resolves with nm/addr2line without guessing the ASLR slide. Without
+        // this every crash report needs the module base from a live process.
+        char base[96];
+        snprintf(base, sizeof(base), "  image base     : %s\n",
+                 HexAddress(GetModuleHandleW(nullptr)).c_str());
+        body += base;
+
+        HMODULE owner = nullptr;
+        if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               reinterpret_cast<LPCWSTR>(rec->ExceptionAddress),
+                               &owner) &&
+            owner) {
+            char rva[128];
+            snprintf(rva, sizeof(rva), "  faulting rva   : 0x%llX (base %s)\n",
+                     static_cast<unsigned long long>(
+                         reinterpret_cast<uintptr_t>(rec->ExceptionAddress) -
+                         reinterpret_cast<uintptr_t>(owner)),
+                     HexAddress(owner).c_str());
+            body += rva;
+        }
     } else {
         body = "  (no exception record)\n";
     }
