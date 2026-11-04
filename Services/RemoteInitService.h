@@ -6,21 +6,41 @@
 #include <vector>
 
 // Snapshot of every machine setting the remote-init UI offers to change.
+//
+// Everything here is read live from the OS (registry / SCM / firewall COM /
+// NetAPI / winrm), never from the app's own config files, so the dialog shows
+// the machine's real state and CreateBackup can capture it for a later restore.
 struct RemoteInitStatus {
     bool isElevated = false;
     bool isWindowsHome = false;
-    std::wstring productName;
+    std::wstring productName;        // Windows 11 Pro
+    std::wstring productVersion;     // 23H2 (DisplayVersion)
+    std::wstring buildNumber;        // 22631
+    std::wstring computerName;
+    std::wstring domainOrWorkgroup;  // CONTOSO or WORKGROUP
+    bool domainJoined = false;
     std::wstring networkCategory;  // 公用 / 私人 / 網域 / 未知
 
     DWORD rdpDeny = 1;         // Terminal Server\fDenyTSConnections
     DWORD nlaUserAuth = 1;     // Terminal Server\WinStations\RDP-Tcp\UserAuthentication
     DWORD limitBlankPass = 1;  // Lsa\LimitBlankPasswordUse
+    DWORD rdpPort = 3389;      // Terminal Server\WinStations\RDP-Tcp\PortNumber
+    DWORD rdpSecurityLayer = 1;  // 0=RDP 1=Negotiate 2=SSL/TLS
 
     bool winrmServiceRunning = false;
+    DWORD winrmStartType = 3;  // 2=auto 3=demand 4=disabled
     bool winrmHttpListener = false;
+    std::wstring winrmListener;  // "HTTP *:5985" (empty when none)
+
     bool rdpFirewallRule = false;
+    bool rdpFirewallEnabled = false;
     bool winrmFirewallRule = false;
+    bool winrmFirewallEnabled = false;
+    std::wstring firewallProfiles;  // e.g. "domain on / private on / public off"
+
     bool userInRdpGroup = true;
+    std::wstring rdpGroupName;
+    std::vector<std::wstring> rdpUsers;  // domain\name entries of the local group
 };
 
 // One checkbox row. `id` is the stable key used by ApplySelected.

@@ -1,12 +1,14 @@
 CXX = g++
 RC = windres
 CXXFLAGS = -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode $(CXXFLAGS_EXTRA)
-LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows -lversion
+LIBS = -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -loleaut32 -luuid -lwinmm -mwindows -lversion
 # Libraries used by always-compiled core/UI code must not depend on a module
 # being selected: UI/NetworkInfoDialog needs iphlpapi, the module dialogs use
-# comdlg32. A subset build (BuildUI.py --modules) would otherwise fail to link
-# with "undefined reference to GetAdaptersAddresses" / GetOpenFileNameW.
-LIBS += -liphlpapi -lcomdlg32
+# comdlg32, RemoteInitService needs netapi32 (local groups / join info) and
+# oleaut32 (SysAllocString for the firewall rule lookup). A subset build
+# (BuildUI.py --modules) would otherwise fail to link with "undefined reference
+# to GetAdaptersAddresses" / GetOpenFileNameW / NetLocalGroupGetMembers.
+LIBS += -liphlpapi -lcomdlg32 -lnetapi32
 
 # Auto-regenerate build/translation files if missing
 ifeq ($(wildcard GeneratedBuild.mk),)
@@ -131,9 +133,9 @@ Debug/WebAgent/WebAgentTest.exe: Debug/WebAgent/WebAgentTest.cpp Modules/WebAgen
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32
 
 # RemoteInitService needs the real ProcessRunner/FileService/Logger units and
-# COM (network category) + UUID for the CLSID/IID symbols.
+# COM (network list + firewall) + NetAPI (local groups / join info).
 Debug/Services/RemoteInitTest.exe: Debug/Services/RemoteInitTest.cpp Services/RemoteInitService.cpp Services/ProcessRunner.cpp Services/FileService.cpp Core/Logger.cpp
-	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lole32 -luuid
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lole32 -loleaut32 -luuid -lnetapi32
 
 -include $(DEPS)
 

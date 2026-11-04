@@ -582,7 +582,7 @@ The host pointer lets tray commands reach `HostApp` state
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
 | UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 32 — version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | 35 — dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
-| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | 37 — environment probe, default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
+| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | 53 — environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
@@ -971,11 +971,13 @@ Every change is expressed as a plain command (`reg add`, `netsh advfirewall`, `s
 
 ### State probe (`CheckEnvironment`)
 
-`RemoteInitStatus` records: elevation, Windows Home, product name, network category, `Terminal Server\fDenyTSConnections`, `WinStations\RDP-Tcp\UserAuthentication`, `Lsa\LimitBlankPasswordUse`, WinRM service/`Start` value, existence of the two firewall rules, and RDP group membership.
+`RemoteInitStatus` records everything the dialog displays and the backup needs: elevation, Windows Home, product name / `DisplayVersion` / build number, computer name, domain or workgroup (`NetGetJoinInformation`), network category, `Terminal Server\fDenyTSConnections`, `WinStations\RDP-Tcp\UserAuthentication` / `PortNumber` / `SecurityLayer`, `Lsa\LimitBlankPasswordUse`, WinRM service state + `Start` type (`SCM`) + HTTP listener, both firewall rules (existence *and* enabled state) plus the three profile switches, and RDP group membership / member list.
 
 - Network category uses COM `INetworkListManager` (`IID_INetworkListManager`); Mingw headers lack `IID_NetworkListManager` and `NLM_NETWORK_CATEGORY_DOMAIN` — use the numeric value `2` for domain.
-- The RDP group name is resolved with `LookupAccountSidW(WinBuiltinRemoteDesktopUsersSid)` so it works on non-English Windows.
-- Firewall rules are queried through `netsh advfirewall firewall show rule name=...`, not the COM firewall API.
+- The RDP group name is resolved with `LookupAccountSidW(WinBuiltinRemoteDesktopUsersSid)` so it works on non-English Windows; members come from `NetLocalGroupGetMembers(level 3)` (domain\name, non-elevated falls back to `net localgroup`).
+- Firewall rules are read through COM `INetFwPolicy2` / `INetFwRules::Item`, not `netsh ... show rule`, whose field labels are localised. `CLSID_NetFwPolicy2` / `IID_INetFwPolicy2` are defined locally because MinGW's `libuuid.a` does not export them (needs `-loleaut32` for `SysAllocString`).
+- The WinRM listener is parsed from `winrm enumerate winrm/config/listener` (`Address` / `Transport` / `Port`); that output is English regardless of the UI locale.
+- All of the above is read live from the OS — none of it is app config, so the dialog and the backup always reflect the machine's real state.
 
 ### Checkbox list (`GetDefaultItems`)
 
@@ -990,24 +992,26 @@ Firewall rule names are `RemoteInit-RDP-3389` / `RemoteInit-WinRM-5985` (`Remote
 
 ### Backup / restore / apply
 
-- `CreateBackup` writes `Log/RemoteInit/backup_<YYYYMMDD_HHMMSS>.json` through `FileService`. The JSON is assembled and parsed by hand — a small key scan, no JSON library — because the project has no JSON dependency in core services.
-- `RestoreBackup` re-applies the seven registry/firewall values stored in the file, then removes the two rules if they were absent.
+- `CreateBackup` writes `Log/RemoteInit/backup_<YYYYMMDD_HHMMSS>.json` through `FileService`. The JSON is assembled and parsed by hand — a small key scan, no JSON library — because the project has no JSON dependency in core services. Keys: `created`, `rdpDeny`, `rdpPort`, `rdpSecurityLayer`, `nlaUserAuth`, `limitBlankPass`, `winrmStartType`, `winrmRunning`, `rdpFirewall`, `rdpFirewallEnabled`, `winrmFirewall`, `winrmFirewallEnabled`, `rdpUsers` (UTF-8 string array).
+- `RestoreBackup` re-applies the stored registry values (including port and security layer), the WinRM start type / running state, creates or removes the two firewall rules and restores their enabled state, and re-adds `rdpUsers` members to the RDP group. Version-1 backups without the newer keys stay usable: the live port is kept and missing keys are skipped.
+- Group restore is additive only — it never removes accounts that were added after the backup.
 - `ApplySelected` walks the checked + selectable items in list order and returns `RemoteInitResult{allOk, logs}`. Each step appends a human-readable line; partial failure keeps going and reports `allOk = false`.
 - Without elevation `ApplySelected` refuses and logs "需要以系統管理員身分執行才能套用設定"; callers check `isElevated` first.
 
 ### Entry points
 
 - **Tray**: `Remote Control Init...` (`ID_TRAY_REMOTE_INIT`, label via `Tr(L"Tray", ...)`) shows the probe summary, offers `RestartElevated` when not elevated, then backups + applies the default list.
-- **Network info dialog**: second tab "遠端控制初始化" (`NetworkInfoDialog::InitRemoteTab`) with one checkbox per item plus 重新檢查 / 備份目前設定 / 從備份還原 / 套用所選項目.
+- **Network info dialog**: two tabs. The first (`InitNetworkTab`) lists the real adapter configuration (MAC / status / speed / MTU / IPv4 + mask / IPv6 / gateway / DNS / WINS / DHCP + lease) from `GetAdaptersAddresses` + `GetAdaptersInfo`, one copy button per row. The second (`InitRemoteTab`) shows a read-only multi-line `EDIT` with the full live RDP / WinRM / firewall / group state (selectable for copy), one checkbox per item, plus 重新檢查 / 備份目前設定 / 從備份還原 / 套用所選項目.
 - **Settings dialog**: `Remote Init` tab at index `1 + modules.size()` (`__remoteinit__<id>` control keys map back to item ids).
 
 ### Tests
 
-`Debug/Services/RemoteInitTest.cpp` (37 assertions) links `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp` and covers the environment probe, default checkbox list, backup JSON round-trip, and the elevation guard. It must not pull in `Console`/`DBG`, so the test EXE stays headless.
+`Debug/Services/RemoteInitTest.cpp` (53 assertions) links `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp` and covers the environment probe, default checkbox list, backup JSON round-trip, and the elevation guard. It must not pull in `Console`/`DBG`, so the test EXE stays headless.
 
 ### Gotchas
 
 - Every apply/restore operation needs an elevated process; a `DEBUG_CONSOLE` build started without UAC silently reports failures instead of elevating itself.
 - `RemoteInitService` writes only under `Log/`, which is gitignored — do not move backups to `Config/` (that would make them user-visible state accidentally committed on a fresh clone).
 - Re-running the tray action always creates a new backup file; there is no pruning. Clean `Log/RemoteInit/` manually if it grows.
-- `netsh` output is localised, so rule existence is judged by `exitCode`/`Ok()`, never by matching English text.
+- `netsh` output is localised, so rule existence is judged by `exitCode`/`Ok()`, never by matching English text. State reads go through `INetFwPolicy2`; only writes still use `netsh`.
+- `CLSID_NetFwPolicy2` / `IID_INetFwPolicy2` are not in MinGW's `libuuid.a`; they are defined in `RemoteInitService.cpp`. Linking needs `-lnetapi32` (`NetLocalGroupGetMembers`, `NetGetJoinInformation`) and `-loleaut32` (`SysAllocString`).

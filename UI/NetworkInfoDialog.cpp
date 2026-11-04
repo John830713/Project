@@ -4,55 +4,259 @@
 #include "../Services/ProcessRunner.h"
 #include "../Services/TranslationService.h"
 #include <iphlpapi.h>
+#include <ws2tcpip.h>
+#include <ctime>
+#include <map>
 #include <vector>
 #include <string>
 #include <commctrl.h>
 #include <shellapi.h>
 
 namespace {
-    struct AdapterIpEntry {
-        std::wstring adapterName;
-        std::wstring ipAddress;
+    // One "label: value" line of an adapter card. `value` is what the copy
+    // button puts on the clipboard.
+    struct AdapterField {
+        std::wstring label;
+        std::wstring value;
     };
 
-    std::vector<AdapterIpEntry> EnumerateAdaptersIpv4() {
-        std::vector<AdapterIpEntry> entries;
+    struct AdapterSnapshot {
+        std::wstring name;         // friendly name ("Ethernet")
+        std::wstring description;  // driver description
+        std::vector<AdapterField> fields;
+    };
 
+    // GetAdaptersInfo reports ANSI strings (system code page).
+    std::wstring Widen(const char* text) {
+        if (!text || !text[0]) return std::wstring();
+        int len = MultiByteToWideChar(CP_ACP, 0, text, -1, nullptr, 0);
+        if (len <= 1) return std::wstring();
+        std::wstring out(static_cast<size_t>(len), L'\0');
+        MultiByteToWideChar(CP_ACP, 0, text, -1, &out[0], len);
+        out.resize(static_cast<size_t>(len - 1));
+        return out;
+    }
+
+    std::wstring FormatMac(const BYTE* data, ULONG length) {        if (!data || length == 0) return L"";
+        std::wstring out;
+        wchar_t part[8] = {};
+        for (ULONG i = 0; i < length; ++i) {
+            if (i > 0) out += L"-";
+            swprintf(part, 8, L"%02X", data[i]);
+            out += part;
+        }
+        return out;
+    }
+
+    std::wstring FormatSpeed(ULONG64 bitsPerSecond) {
+        if (bitsPerSecond == 0) return L"";
+        wchar_t buffer[64] = {};
+        double mbps = static_cast<double>(bitsPerSecond) / 1000000.0;
+        if (mbps >= 1000.0) {
+            swprintf(buffer, 64, L"%.1f Gbps", mbps / 1000.0);
+        } else {
+            swprintf(buffer, 64, L"%.0f Mbps", mbps);
+        }
+        return buffer;
+    }
+
+    std::wstring OperStatusText(IF_OPER_STATUS status) {
+        switch (status) {
+            case IfOperStatusUp: return L"已連線";
+            case IfOperStatusDown: return L"未連線";
+            case IfOperStatusTesting: return L"測試中";
+            case IfOperStatusDormant: return L"休眠";
+            case IfOperStatusNotPresent: return L"不在場";
+            case IfOperStatusLowerLayerDown: return L"下層未連線";
+            default: return L"未知";
+        }
+    }
+
+    // 255.255.255.0 style mask derived from the on-link prefix length.
+    std::wstring PrefixToMask(ULONG prefix) {
+        if (prefix > 32) prefix = 32;
+        ULONG mask = prefix == 0 ? 0 : (0xFFFFFFFFu << (32 - prefix));
+        wchar_t buffer[32] = {};
+        swprintf(buffer, 32, L"%u.%u.%u.%u",
+                 (mask >> 24) & 0xFF, (mask >> 16) & 0xFF,
+                 (mask >> 8) & 0xFF, mask & 0xFF);
+        return buffer;
+    }
+
+    std::wstring SockaddrToText(const SOCKET_ADDRESS& address) {
+        wchar_t buffer[128] = {};
+        DWORD len = 128;
+        if (address.lpSockaddr &&
+            WSAAddressToStringW(address.lpSockaddr, address.iSockaddrLength,
+                                nullptr, buffer, &len) == 0) {
+            return buffer;
+        }
+        return L"";
+    }
+
+    // GetAdaptersAddresses carries the modern data, but DHCP state / lease
+    // times / WINS only exist in the legacy GetAdaptersInfo view.
+    struct LegacyAdapterInfo {
+        bool dhcpEnabled = false;
+        std::wstring dhcpServer;
+        std::wstring winsPrimary;
+        std::wstring winsSecondary;
+        ULONGLONG leaseObtained = 0;
+        ULONGLONG leaseExpires = 0;
+    };
+
+    std::map<std::wstring, LegacyAdapterInfo> CollectLegacyInfo() {
+        std::map<std::wstring, LegacyAdapterInfo> result;
+
+        ULONG size = 0;
+        if (GetAdaptersInfo(nullptr, &size) != ERROR_BUFFER_OVERFLOW || size == 0) {
+            return result;
+        }
+        std::vector<BYTE> buffer(size);
+        auto* info = reinterpret_cast<PIP_ADAPTER_INFO>(buffer.data());
+        if (GetAdaptersInfo(info, &size) != NO_ERROR) return result;
+
+        for (auto* a = info; a; a = a->Next) {
+            LegacyAdapterInfo entry;
+            entry.dhcpEnabled = a->DhcpEnabled != 0;
+            entry.dhcpServer = Widen(a->DhcpServer.IpAddress.String);
+            if (a->HaveWins) {
+                entry.winsPrimary = Widen(a->PrimaryWinsServer.IpAddress.String);
+                entry.winsSecondary = Widen(a->SecondaryWinsServer.IpAddress.String);
+            }
+            entry.leaseObtained = static_cast<ULONGLONG>(a->LeaseObtained);
+            entry.leaseExpires = static_cast<ULONGLONG>(a->LeaseExpires);
+
+            // AdapterName is the same "{GUID}" string exposed by
+            // GetAdaptersAddresses, just in ANSI form.
+            result[Widen(a->AdapterName)] = entry;
+        }
+        return result;
+    }
+
+    std::wstring FormatLease(ULONGLONG timestamp) {
+        if (timestamp == 0) return L"無限";
+        time_t t = static_cast<time_t>(timestamp);
+        tm* local = localtime(&t);
+        if (!local) return L"";
+        wchar_t buffer[64] = {};
+        swprintf(buffer, 64, L"%04d-%02d-%02d %02d:%02d",
+                 local->tm_year + 1900, local->tm_mon + 1, local->tm_mday,
+                 local->tm_hour, local->tm_min);
+        return buffer;
+    }
+
+    std::vector<AdapterSnapshot> EnumerateAdapters() {
+        std::vector<AdapterSnapshot> adapters;
+
+        const ULONG flags = GAA_FLAG_INCLUDE_PREFIX |
+                            GAA_FLAG_INCLUDE_GATEWAYS |
+                            GAA_FLAG_INCLUDE_WINS_INFO;
         ULONG bufLen = 0;
-        GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, nullptr, &bufLen);
-        if (bufLen == 0) return entries;
+        GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, nullptr, &bufLen);
+        if (bufLen == 0) return adapters;
 
         std::vector<BYTE> buf(bufLen);
-        auto* adapters = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buf.data());
+        auto* list = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(buf.data());
+        if (GetAdaptersAddresses(AF_UNSPEC, flags, nullptr, list, &bufLen) != NO_ERROR) {
+            return adapters;
+        }
 
-        ULONG ret = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapters, &bufLen);
-        if (ret != NO_ERROR) return entries;
+        auto legacy = CollectLegacyInfo();
 
-        wchar_t ipStr[64];
-        for (auto* a = adapters; a; a = a->Next) {
+        for (auto* a = list; a; a = a->Next) {
+            // Loopback and tunnel pseudo-adapters are noise here.
+            if (a->IfType == IF_TYPE_SOFTWARE_LOOPBACK) continue;
+            if (!a->FriendlyName || !a->FriendlyName[0]) continue;
             if (a->OperStatus != IfOperStatusUp) continue;
 
-            std::wstring desc = a->Description ? a->Description : L"";
+            AdapterSnapshot snapshot;
+            snapshot.name = a->FriendlyName;
+            snapshot.description = a->Description ? a->Description : L"";
 
+            std::wstring mac = FormatMac(a->PhysicalAddress, a->PhysicalAddressLength);
+            if (!mac.empty()) snapshot.fields.push_back({ L"MAC", mac });
+
+            std::wstring link = OperStatusText(a->OperStatus);
+            std::wstring speed = FormatSpeed(a->TransmitLinkSpeed);
+            if (!speed.empty()) link += L"，" + speed;
+            if (a->Mtu > 0) link += L"，MTU " + std::to_wstring(a->Mtu);
+            snapshot.fields.push_back({ L"狀態", link });
+
+            std::wstring ipv4;
+            std::wstring ipv6;
             for (auto* ua = a->FirstUnicastAddress; ua; ua = ua->Next) {
-                if (ua->Address.lpSockaddr->sa_family != AF_INET) continue;
-                DWORD len = 64;
-                ipStr[0] = 0;
-                if (WSAAddressToStringW(ua->Address.lpSockaddr,
-                    ua->Address.iSockaddrLength, nullptr, ipStr, &len) == 0) {
-                    entries.push_back({ desc, ipStr });
+                if (!ua->Address.lpSockaddr) continue;
+                if (ua->Address.lpSockaddr->sa_family == AF_INET) {
+                    std::wstring text = SockaddrToText(ua->Address);
+                    ULONG prefix = ua->OnLinkPrefixLength;
+                    if (!ipv4.empty()) ipv4 += L"；";
+                    ipv4 += text + L" / " + PrefixToMask(prefix) +
+                            L" (" + std::to_wstring(prefix) + L")";
+                } else if (ua->Address.lpSockaddr->sa_family == AF_INET6) {
+                    std::wstring text = SockaddrToText(ua->Address);
+                    if (!ipv6.empty()) ipv6 += L"；";
+                    ipv6 += text + L" / " + std::to_wstring(ua->OnLinkPrefixLength);
                 }
             }
+            if (!ipv4.empty()) snapshot.fields.push_back({ L"IPv4", ipv4 });
+            if (!ipv6.empty()) snapshot.fields.push_back({ L"IPv6", ipv6 });
+
+            std::wstring gateways;
+            for (auto* gw = a->FirstGatewayAddress; gw; gw = gw->Next) {
+                if (!gw->Address.lpSockaddr) continue;
+                std::wstring text = SockaddrToText(gw->Address);
+                if (text.empty()) continue;
+                if (!gateways.empty()) gateways += L"；";
+                gateways += text;
+            }
+            if (!gateways.empty()) snapshot.fields.push_back({ L"預設閘道", gateways });
+
+            std::wstring dns;
+            for (auto* d = a->FirstDnsServerAddress; d; d = d->Next) {
+                if (!d->Address.lpSockaddr) continue;
+                std::wstring text = SockaddrToText(d->Address);
+                if (text.empty()) continue;
+                if (!dns.empty()) dns += L"，";
+                dns += text;
+            }
+            if (!dns.empty()) snapshot.fields.push_back({ L"DNS", dns });
+
+            auto it = legacy.find(Widen(a->AdapterName));
+            if (it != legacy.end()) {
+                const LegacyAdapterInfo& old = it->second;
+                if (!old.winsPrimary.empty() || !old.winsSecondary.empty()) {
+                    std::wstring wins = old.winsPrimary;
+                    if (!old.winsSecondary.empty()) {
+                        if (!wins.empty()) wins += L"，";
+                        wins += old.winsSecondary;
+                    }
+                    snapshot.fields.push_back({ L"WINS", wins });
+                }
+                if (old.dhcpEnabled) {
+                    std::wstring dhcp = L"已啟用";
+                    if (!old.dhcpServer.empty()) dhcp += L"，伺服器 " + old.dhcpServer;
+                    snapshot.fields.push_back({ L"DHCP", dhcp });
+                    snapshot.fields.push_back(
+                        { L"租約取得", FormatLease(old.leaseObtained) });
+                    snapshot.fields.push_back(
+                        { L"租約到期", FormatLease(old.leaseExpires) });
+                } else {
+                    snapshot.fields.push_back({ L"DHCP", L"未啟用（固定 IP）" });
+                }
+            }
+
+            adapters.push_back(std::move(snapshot));
         }
-        return entries;
+        return adapters;
     }
 
     constexpr int MARGIN = 8;
     constexpr int GAP = 3;
     constexpr int HEADER_H = 22;
-    constexpr int ROW_H = 26;
-    constexpr int BTN_SZ = 22;
-    constexpr int WIN_W = 520;
+    constexpr int ROW_H = 20;
+    constexpr int BTN_SZ = 18;
+    constexpr int WIN_W = 700;
     constexpr int WIN_MIN_H = 260;
     constexpr int CLOSE_BTN_W = 80;
     constexpr int CLOSE_BTN_H = 26;
@@ -308,7 +512,7 @@ void NetworkInfoDialog::Init(HWND hwnd) {
 }
 
 void NetworkInfoDialog::InitNetworkTab(HWND hwnd) {
-    auto entries = EnumerateAdaptersIpv4();
+    auto adapters = EnumerateAdapters();
 
     // Create close button
     if (!m_hBtnClose || !IsWindow(m_hBtnClose)) {
@@ -320,32 +524,34 @@ void NetworkInfoDialog::InitNetworkTab(HWND hwnd) {
         ShowWindow(m_hBtnClose, SW_SHOW);
     }
 
-    if (entries.empty()) {
+    if (adapters.empty()) {
         m_contentH = 0;
         Layout();
         return;
     }
 
-    // Group entries by adapter name
+    // Every adapter becomes a group header followed by "label: value" rows.
     m_groups.clear();
     m_rows.clear();
-    std::wstring lastName;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const auto& e = entries[i];
-        if (e.adapterName != lastName) {
-            lastName = e.adapterName;
-            AdapterGroup g;
-            g.name = e.adapterName;
-            g.hHeader = nullptr;
-            m_groups.push_back(g);
+    for (const auto& adapter : adapters) {
+        AdapterGroup g;
+        g.name = adapter.name;
+        if (!adapter.description.empty()) {
+            g.name += L"  —  " + adapter.description;
         }
-        IpRow row;
-        row.ip = e.ipAddress;
-        row.hText = nullptr;
-        row.hBtn = nullptr;
-        row.id = m_nextBtnId++;
-        m_groups.back().rows.push_back((int)m_rows.size());
-        m_rows.push_back(row);
+        g.hHeader = nullptr;
+        m_groups.push_back(g);
+
+        for (const auto& field : adapter.fields) {
+            IpRow row;
+            row.display = field.label + L"：" + field.value;
+            row.copyValue = field.value;
+            row.hText = nullptr;
+            row.hBtn = nullptr;
+            row.id = m_nextBtnId++;
+            m_groups.back().rows.push_back((int)m_rows.size());
+            m_rows.push_back(row);
+        }
     }
 
     // Create bold font for headers
@@ -368,8 +574,8 @@ void NetworkInfoDialog::InitNetworkTab(HWND hwnd) {
 
     DWORD btnStyle = WS_CHILD | WS_VISIBLE | BS_OWNERDRAW;
     for (auto& row : m_rows) {
-        row.hText = CreateWindowW(L"STATIC", row.ip.c_str(),
-            WS_CHILD | WS_VISIBLE,
+        row.hText = CreateWindowW(L"STATIC", row.display.c_str(),
+            WS_CHILD | WS_VISIBLE | SS_ENDELLIPSIS,
             0, 0, 0, ROW_H,
             hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
 
@@ -419,21 +625,94 @@ void NetworkInfoDialog::InitRemoteTab(HWND hwnd) {
 
     int y = MARGIN + TAB_H + 8;
     {
-        std::wstring info = L"系統：";
-        if (m_remoteStatus.isElevated) info += L"已管理員權限  ";
-        else info += L"非管理員權限  ";
-        if (m_remoteStatus.isWindowsHome) info += L"Windows Home  ";
-        info += L"產品：" + m_remoteStatus.productName + L"  ";
-        info += L"網路：" + m_remoteStatus.networkCategory + L"\r\n";
-        info += L"RDP：" + std::wstring(m_remoteStatus.rdpDeny == 0 ? L"已啟用" : L"未啟用") + L"  ";
-        info += L"NLA：" + std::wstring(m_remoteStatus.nlaUserAuth == 1 ? L"啟用" : L"停用") + L"  ";
-        info += L"空白密碼限制：" + std::wstring(m_remoteStatus.limitBlankPass == 1 ? L"限制" : L"允許") + L"  ";
-        info += L"WinRM：" + std::wstring(m_remoteStatus.winrmServiceRunning ? L"執行中" : L"未執行");
-        HWND hInfo = CreateWindowW(L"STATIC", info.c_str(), WS_CHILD | WS_VISIBLE,
-            MARGIN, y, WIN_W - MARGIN * 2, 42, hwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
+        std::wstring layer = L"未知";
+        switch (m_remoteStatus.rdpSecurityLayer) {
+            case 0: layer = L"RDP 安全性"; break;
+            case 1: layer = L"交涉 (Negotiate)"; break;
+            case 2: layer = L"SSL/TLS"; break;
+            default: break;
+        }
+
+        std::wstring winrmStart = L"未知";
+        switch (m_remoteStatus.winrmStartType) {
+            case 2: winrmStart = L"自動"; break;
+            case 3: winrmStart = L"手動"; break;
+            case 4: winrmStart = L"已停用"; break;
+            default: break;
+        }
+
+        auto ruleState = [](bool exists, bool enabled) {
+            if (!exists) return std::wstring(L"未建立");
+            return std::wstring(enabled ? L"已建立，已啟用" : L"已建立，已停用");
+        };
+
+        std::wstring version = m_remoteStatus.productVersion;
+        if (!m_remoteStatus.buildNumber.empty()) {
+            if (!version.empty()) version += L" ";
+            version += L"(build " + m_remoteStatus.buildNumber + L")";
+        }
+
+        std::wstring users;
+        for (const auto& user : m_remoteStatus.rdpUsers) {
+            if (!users.empty()) users += L"，";
+            users += user;
+        }
+
+        std::wstring info;
+        auto line = [&](const std::wstring& text) { info += text + L"\r\n"; };
+        line(L"電腦名稱：" +
+             (m_remoteStatus.computerName.empty() ? L"未知"
+                                                  : m_remoteStatus.computerName));
+        line(L"Windows：" +
+             (m_remoteStatus.productName.empty() ? L"未知"
+                                                 : m_remoteStatus.productName) +
+             (version.empty() ? L"" : L" " + version));
+        line(std::wstring(L"執行權限：") +
+             (m_remoteStatus.isElevated ? L"系統管理員" : L"一般使用者"));
+        line(L"網域/工作群組：" +
+             (m_remoteStatus.domainOrWorkgroup.empty()
+                  ? L"未知"
+                  : m_remoteStatus.domainOrWorkgroup) +
+             (m_remoteStatus.domainJoined ? L"（已加入網域）" : L"（工作群組）"));
+        line(L"網路類別：" + m_remoteStatus.networkCategory);
+        line(std::wstring(L"遠端桌面：") +
+             (m_remoteStatus.rdpDeny == 0 ? L"已啟用" : L"未啟用") +
+             L"，連接埠 " + std::to_wstring(m_remoteStatus.rdpPort));
+        line(std::wstring(L"網路層級驗證：") +
+             (m_remoteStatus.nlaUserAuth == 1 ? L"已啟用" : L"未啟用"));
+        line(L"安全層級：" + layer);
+        line(std::wstring(L"空白密碼限制：") +
+             (m_remoteStatus.limitBlankPass == 1 ? L"限制" : L"允許"));
+        line(L"遠端桌面使用者群組：" + m_remoteStatus.rdpGroupName + L"（" +
+             std::to_wstring(m_remoteStatus.rdpUsers.size()) + L" 位成員）");
+        line(L"  成員：" + (users.empty() ? L"(無法讀取或無成員)" : users));
+        line(std::wstring(L"  目前使用者在此群組：") +
+             (m_remoteStatus.userInRdpGroup ? L"是" : L"否"));
+        line(L"WinRM 服務：" +
+             std::wstring(m_remoteStatus.winrmServiceRunning ? L"執行中"
+                                                              : L"未執行") +
+             L"（" + winrmStart + L"啟動）");
+        line(L"WinRM Listener：" +
+             (m_remoteStatus.winrmListener.empty() ? L"未建立"
+                                                   : m_remoteStatus.winrmListener));
+        line(L"防火牆設定檔：" +
+             (m_remoteStatus.firewallProfiles.empty() ? L"未知"
+                                                      : m_remoteStatus.firewallProfiles));
+        line(L"RDP 防火牆規則：" +
+             ruleState(m_remoteStatus.rdpFirewallRule,
+                       m_remoteStatus.rdpFirewallEnabled));
+        line(L"WinRM 防火牆規則：" +
+             ruleState(m_remoteStatus.winrmFirewallRule,
+                       m_remoteStatus.winrmFirewallEnabled));
+
+        HWND hInfo = CreateWindowExW(0, L"EDIT", info.c_str(),
+            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY |
+                ES_AUTOVSCROLL | WS_VSCROLL,
+            MARGIN, y, WIN_W - MARGIN * 2, 250, hwnd, nullptr,
+            GetModuleHandleW(nullptr), nullptr);
         if (hFont) SendMessageW(hInfo, WM_SETFONT, (WPARAM)hFont, TRUE);
         m_remoteCtrls.push_back(hInfo);
-        y += 48;
+        y += 258;
     }
     for (size_t i = 0; i < m_remoteItems.size(); ++i) {
         const auto& it = m_remoteItems[i];
@@ -441,7 +720,9 @@ void NetworkInfoDialog::InitRemoteTab(HWND hwnd) {
         if (!it.selectable) flags |= WS_DISABLED;
         std::wstring lbl = it.label + L"  -  " + it.desc;
         HWND hChk = CreateWindowW(L"BUTTON", lbl.c_str(), flags,
-            MARGIN, y, WIN_W - MARGIN * 2, 20, hwnd, (HMENU)(ID_REMOTE_ITEM_BASE + (int)i), GetModuleHandleW(nullptr), nullptr);
+            MARGIN, y, WIN_W - MARGIN * 2, 20, hwnd,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_REMOTE_ITEM_BASE + (int)i)),
+            GetModuleHandleW(nullptr), nullptr);
         if (hFont) SendMessageW(hChk, WM_SETFONT, (WPARAM)hFont, TRUE);
         if (it.checked && it.selectable) SendMessageW(hChk, BM_SETCHECK, BST_CHECKED, 0);
         m_remoteCtrls.push_back(hChk);
@@ -479,7 +760,12 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
     }
     if (id == ID_REMOTE_BACKUP) {
         m_remoteBackupPath = RemoteInitService::Get()->CreateBackup(m_remoteStatus);
-        MessageBoxW(hwnd, (L"已備份目前設定：\r\n" + m_remoteBackupPath).c_str(), L"備份完成", MB_OK | MB_ICONINFORMATION);
+        if (m_remoteBackupPath.empty()) {
+            MessageBoxW(hwnd, L"備份失敗，詳見 Log。", L"備份失敗", MB_OK | MB_ICONWARNING);
+        } else {
+            MessageBoxW(hwnd, (L"已備份目前設定：\r\n" + m_remoteBackupPath).c_str(),
+                        L"備份完成", MB_OK | MB_ICONINFORMATION);
+        }
         return;
     }
     if (id == ID_REMOTE_RESTORE) {
@@ -491,7 +777,7 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
             if (RemoteInitService::Get()->RestoreBackup(m_remoteBackupPath)) {
                 MessageBoxW(hwnd, L"還原完成", L"還原", MB_OK | MB_ICONINFORMATION);
             } else {
-                MessageBoxW(hwnd, L"還原失敗（簡化實作僅支援部分項目）", L"還原", MB_OK | MB_ICONWARNING);
+                MessageBoxW(hwnd, L"還原失敗，詳見 Log。", L"還原", MB_OK | MB_ICONWARNING);
             }
             InitRemoteTab(hwnd);
         }
@@ -570,7 +856,7 @@ int NetworkInfoDialog::Layout() {
 
 void NetworkInfoDialog::OnCopy(int idx) {
     if (idx < 0 || idx >= (int)m_rows.size()) return;
-    const std::wstring& ip = m_rows[idx].ip;
+    const std::wstring& ip = m_rows[idx].copyValue;
 
     if (!OpenClipboard(m_hwnd)) return;
     EmptyClipboard();

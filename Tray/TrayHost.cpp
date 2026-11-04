@@ -302,15 +302,34 @@ void TrayHost::OnCommand(UINT cmd) {
         UpdateTooltip();
     } else if (cmd == ID_TRAY_REMOTE_INIT) {
         auto st = RemoteInitService::Get()->CheckEnvironment();
+        auto ruleState = [](bool exists, bool enabled) {
+            if (!exists) return std::wstring(L"未建立");
+            return std::wstring(enabled ? L"已建立，已啟用" : L"已建立，已停用");
+        };
         std::wstring info = L"遠端控制初始化（RDP / WinRM）\r\n\r\n";
         info += L"管理員權限: " + std::wstring(st.isElevated ? L"是" : L"否") + L"\r\n";
-        info += L"產品: " + st.productName + L"\r\n";
+        info += L"電腦名稱: " + st.computerName + L"\r\n";
+        info += L"產品: " + st.productName;
+        if (!st.productVersion.empty()) info += L" " + st.productVersion;
+        info += L"\r\n";
         info += L"Windows Home: " + std::wstring(st.isWindowsHome ? L"是" : L"否") + L"\r\n";
+        info += L"網域/工作群組: " + st.domainOrWorkgroup +
+                (st.domainJoined ? L"（網域）" : L"（工作群組）") + L"\r\n";
         info += L"網路類型: " + st.networkCategory + L"\r\n";
-        info += L"RDP: " + std::wstring(st.rdpDeny == 0 ? L"已啟用" : L"未啟用") + L"\r\n";
+        info += L"RDP: " + std::wstring(st.rdpDeny == 0 ? L"已啟用" : L"未啟用") +
+                L"，連接埠 " + std::to_wstring(st.rdpPort) + L"\r\n";
         info += L"NLA: " + std::wstring(st.nlaUserAuth == 1 ? L"啟用" : L"停用") + L"\r\n";
         info += L"空白密碼網路登入限制: " + std::wstring(st.limitBlankPass == 1 ? L"限制" : L"允許") + L"\r\n";
-        info += L"WinRM: " + std::wstring(st.winrmServiceRunning ? L"執行中" : L"未執行") + L"\r\n\r\n";
+        info += L"遠端桌面群組: " + st.rdpGroupName + L"（" +
+                std::to_wstring(st.rdpUsers.size()) + L" 位成員）\r\n";
+        info += L"WinRM: " + std::wstring(st.winrmServiceRunning ? L"執行中" : L"未執行") +
+                L"，Listener " +
+                (st.winrmListener.empty() ? L"未建立" : st.winrmListener) + L"\r\n";
+        info += L"防火牆設定檔: " + st.firewallProfiles + L"\r\n";
+        info += L"RDP 防火牆規則: " +
+                ruleState(st.rdpFirewallRule, st.rdpFirewallEnabled) + L"\r\n";
+        info += L"WinRM 防火牆規則: " +
+                ruleState(st.winrmFirewallRule, st.winrmFirewallEnabled) + L"\r\n\r\n";
         if (!st.isElevated) {
             if (MessageBoxW(m_hwnd, (info + L"目前非系統管理員，建議以系統管理員身分重新啟動程式。\r\n是否以管理員身分重新啟動？").c_str(), L"Remote Init", MB_YESNO | MB_ICONWARNING) == IDYES) {
                 ProcessRunner::RestartElevated(L"");
@@ -318,7 +337,7 @@ void TrayHost::OnCommand(UINT cmd) {
             }
             return;
         }
-        if (MessageBoxW(m_hwnd, (info + L"將備份目前設定並套用建議項目：\r\n- 啟用 RDP（若非 Home）\r\n- 啟用 NLA\r\n- 開啟 RDP 防火牆 3389\r\n- 啟用 WinRM（若未執行）\r\n- 開啟 WinRM 防火牆 5985\r\n\r\n「允許空白密碼網路登入」預設不勾選，僅建議用於內網測試。\r\n是否繼續？").c_str(), L"Remote Init", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+        if (MessageBoxW(m_hwnd, (info + L"將備份目前設定並套用建議項目：\r\n- 啟用 RDP（若非 Home）\r\n- 啟用 NLA\r\n- 開啟 RDP 防火牆 " + std::to_wstring(st.rdpPort) + L"\r\n- 啟用 WinRM（若未執行）\r\n- 開啟 WinRM 防火牆 5985\r\n\r\n「允許空白密碼網路登入」預設不勾選，僅建議用於內網測試。\r\n是否繼續？").c_str(), L"Remote Init", MB_YESNO | MB_ICONQUESTION) == IDYES) {
             std::wstring backup = RemoteInitService::Get()->CreateBackup(st);
             MessageBoxW(m_hwnd, (L"已備份目前設定：\r\n" + backup).c_str(), L"備份完成", MB_OK | MB_ICONINFORMATION);
             auto items = RemoteInitService::Get()->GetDefaultItems(st);

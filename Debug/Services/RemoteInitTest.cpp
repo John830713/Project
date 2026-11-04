@@ -60,6 +60,18 @@ int main() {
     //--- environment probe -------------------------------------------------
     RemoteInitStatus status = service->CheckEnvironment();
     CHECK(!status.productName.empty(), "product name detected");
+    CHECK(!status.productVersion.empty(), "product version detected");
+    CHECK(!status.buildNumber.empty(), "build number detected");
+    CHECK(!status.computerName.empty(), "computer name detected");
+    CHECK(!status.domainOrWorkgroup.empty(), "domain/workgroup detected");
+    CHECK(!status.rdpGroupName.empty(), "rdp group name resolved");
+    CHECK(status.rdpPort > 0 && status.rdpPort <= 65535, "rdp port is valid");
+    CHECK(status.rdpSecurityLayer <= 2, "rdp security layer is in range");
+    CHECK(status.winrmStartType >= 2 && status.winrmStartType <= 4,
+          "winrm start type is valid");
+    CHECK(status.winrmHttpListener == !status.winrmListener.empty(),
+          "winrm listener flag matches its text");
+    CHECK(!status.firewallProfiles.empty(), "firewall profile state detected");
     CHECK(!status.networkCategory.empty(), "network category detected");
     CHECK(status.isElevated == ProcessRunner::IsElevated(),
           "elevation matches ProcessRunner");
@@ -104,14 +116,14 @@ int main() {
 
     const RemoteInitItem* rdpFw = FindItem(items, L"rdp_firewall");
     if (rdpFw) {
-        CHECK(rdpFw->checked == !status.rdpFirewallRule,
-              "rdp firewall checked when the rule is missing");
+        CHECK(rdpFw->checked == !status.rdpFirewallEnabled,
+              "rdp firewall checked when the rule is missing or disabled");
     }
 
     const RemoteInitItem* winrmFw = FindItem(items, L"winrm_firewall");
     if (winrmFw) {
-        CHECK(winrmFw->checked == !status.winrmFirewallRule,
-              "winrm firewall checked when the rule is missing");
+        CHECK(winrmFw->checked == !status.winrmFirewallEnabled,
+              "winrm firewall checked when the rule is missing or disabled");
     }
 
     const RemoteInitItem* rdpUsers = FindItem(items, L"rdp_users");
@@ -141,14 +153,24 @@ int main() {
     }
     CHECK(!content.empty(), "backup file is not empty");
     CHECK(Contains(content, "\"rdpDeny\""), "backup stores rdpDeny");
+    CHECK(Contains(content, "\"rdpPort\""), "backup stores rdpPort");
+    CHECK(Contains(content, "\"rdpSecurityLayer\""),
+          "backup stores rdpSecurityLayer");
     CHECK(Contains(content, "\"nlaUserAuth\""), "backup stores nlaUserAuth");
     CHECK(Contains(content, "\"limitBlankPass\""), "backup stores limitBlankPass");
     CHECK(Contains(content, "\"winrmStartType\""), "backup stores winrmStartType");
     CHECK(Contains(content, "\"winrmRunning\""), "backup stores winrmRunning");
     CHECK(Contains(content, "\"rdpFirewall\""), "backup stores rdpFirewall");
+    CHECK(Contains(content, "\"rdpFirewallEnabled\""),
+          "backup stores rdpFirewallEnabled");
     CHECK(Contains(content, "\"winrmFirewall\""), "backup stores winrmFirewall");
+    CHECK(Contains(content, "\"winrmFirewallEnabled\""),
+          "backup stores winrmFirewallEnabled");
+    CHECK(Contains(content, "\"rdpUsers\""), "backup stores rdpUsers");
     CHECK(Contains(content, "\"rdpDeny\": " + std::to_string(status.rdpDeny)),
           "backup value matches current rdpDeny");
+    CHECK(Contains(content, "\"rdpPort\": " + std::to_string(status.rdpPort)),
+          "backup value matches current rdpPort");
 
     CHECK(!service->RestoreBackup(L""), "restore rejects an empty path");
     CHECK(!service->RestoreBackup(L"Z:\\nonexistent\\remote_init.json"),

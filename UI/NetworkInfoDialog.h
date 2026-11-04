@@ -30,7 +30,8 @@ private:
     int m_contentH;
 
     struct IpRow {
-        std::wstring ip;
+        std::wstring display;    // "IPv4：192.168.1.10 / 255.255.255.0"
+        std::wstring copyValue;  // value placed on the clipboard
         HWND hText;
         HWND hBtn;
         int id;
