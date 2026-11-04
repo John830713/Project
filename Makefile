@@ -65,6 +65,19 @@ ifneq ($(strip $(GENERATED_VERSION_OBJ)),)
 ALL_OBJS += $(GENERATED_VERSION_OBJ)
 endif
 
+# Flags stamp. Every object depends on .build-flags, whose mtime only changes
+# when the compiler flags do, so a flag change rebuilds everything even for a
+# plain `make`. Mixing objects built with different flags is not safe:
+# -DDEBUG_CONSOLE changes class layout (Pet/MainWindow.h), and the resulting
+# heap corruption surfaced as 0xC0000005 inside std::locale on startup.
+FLAGS_STAMP = .build-flags
+FLAGS_CURRENT = $(TARGET)|$(CXXFLAGS)|$(LIBS_EXTRA)
+FLAGS_PREV = $(if $(wildcard $(FLAGS_STAMP)),$(file <$(FLAGS_STAMP)))
+ifneq ($(strip $(FLAGS_PREV)),$(strip $(FLAGS_CURRENT)))
+$(info Build flags changed, rebuilding all objects...)
+$(file >$(FLAGS_STAMP),$(FLAGS_CURRENT))
+endif
+
 TRANSLATION_OUT = Translation/zh-TW.ini
 ifneq ($(wildcard Translation/_src/zh-TW.ini),)
 ifneq ($(wildcard $(TRANSLATION_OUT)),)
@@ -90,6 +103,8 @@ $(TRANSLATION_OUT): $(TRANSLATION_DEPS)
 endif
 
 TranslationRes.o: $(TRANSLATION_OUT)
+
+$(ALL_OBJS): $(FLAGS_STAMP)
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@

@@ -4,6 +4,7 @@ GeneratedIcon.*
 GeneratedVersion.*
 GeneratedModuleRegistry.*
 Build.log
+.build-flags
 
 # Auto-generated translation
 Translation/*.ini
