@@ -16,8 +16,9 @@ void AutoKeyDialog::Show(HWND parent, AutoKeyModule* module) {
     if (parent) EnableWindow(parent, FALSE);
 
     MSG msg = {};
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        if (!IsWindow(dlg.m_hwnd)) break;
+    BOOL gotMessage = TRUE;
+    while (IsWindow(dlg.m_hwnd) &&
+           (gotMessage = GetMessageW(&msg, nullptr, 0, 0)) > 0) {
         if (msg.message == WM_KEYDOWN && msg.wParam == 'A' &&
             (GetKeyState(VK_CONTROL) & 0x8000)) {
             HWND hFocus = GetFocus();
@@ -33,6 +34,11 @@ void AutoKeyDialog::Show(HWND parent, AutoKeyModule* module) {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+
+    // A nested loop eats the thread's WM_QUIT, which would leave this
+    // stack-owned window alive after dlg dies (dangling GWLP_USERDATA).
+    if (IsWindow(dlg.m_hwnd)) DestroyWindow(dlg.m_hwnd);
+    if (gotMessage == 0) PostQuitMessage(static_cast<int>(msg.wParam));
 
     if (parent) {
         EnableWindow(parent, TRUE);
@@ -111,6 +117,12 @@ LRESULT AutoKeyDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM 
         return 0;
 
     case WM_DESTROY:
+        return 0;
+
+    case WM_NCDESTROY:
+        // Drop the back-pointer: this window is gone, and the object that owns
+        // it lives on the stack of Show().
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
