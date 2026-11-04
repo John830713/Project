@@ -49,6 +49,12 @@ SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
     }
 
     auto petData = PetConfig::Load();
+    // Seed every definition first, so a key added to PetConfig later cannot
+    // silently fall back to whatever the dialog happens to default to. The
+    // explicit assignments below are the authoritative values.
+    for (const auto& def : PetConfig::GetDefinitions()) {
+        m_petEditedValues[def.key] = def.defaultValue;
+    }
     m_petEditedValues[L"posX"] = std::to_wstring(petData.posX);
     m_petEditedValues[L"posY"] = std::to_wstring(petData.posY);
     m_petEditedValues[L"opacity"] = std::to_wstring(petData.opacity);
@@ -59,6 +65,10 @@ SettingsDialog::SettingsDialog(HWND parent, ModuleManager* moduleManager)
     m_petEditedValues[L"moveSpeed"] = std::to_wstring(petData.moveSpeed);
     m_petEditedValues[L"moveShuttle"] = petData.moveShuttle ? L"1" : L"0";
     m_petEditedValues[L"language"] = petData.language;
+    // autoStart is read from the HKCU Run entry, not from the INI copy. Without
+    // this seed the checkbox falls back to the definition default ("0"), so an
+    // enabled entry looked disabled and Save silently removed it.
+    m_petEditedValues[L"autoStart"] = petData.autoStart ? L"1" : L"0";
     m_origOpacity = petData.opacity;
     m_origScale = petData.scalePercent;
 
