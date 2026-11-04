@@ -586,9 +586,15 @@ void SettingsDialog::OnTabChanged(HWND hwnd) {
     DBG(L"OnTabChanged: old tab=%d", m_currentTab);
     ReadFieldsFromControls();
 
-    for (auto h : m_fieldLabels) if (IsWindow(h)) DestroyWindow(h);
-    for (auto h : m_fieldControls) if (IsWindow(h)) DestroyWindow(h);
-    for (auto h : m_browseBtns) if (IsWindow(h)) DestroyWindow(h);
+    // Destroying a control can synchronously deliver EN_KILLFOCUS to this same
+    // dialog, which re-enters OnTabChanged and repopulates these lists. Iterate
+    // copies so the loop never walks storage that the re-entrant call cleared.
+    const std::vector<HWND> labelsToDestroy = m_fieldLabels;
+    const std::vector<HWND> controlsToDestroy = m_fieldControls;
+    const std::vector<HWND> browsersToDestroy = m_browseBtns;
+    for (auto h : labelsToDestroy) if (IsWindow(h)) DestroyWindow(h);
+    for (auto h : controlsToDestroy) if (IsWindow(h)) DestroyWindow(h);
+    for (auto h : browsersToDestroy) if (IsWindow(h)) DestroyWindow(h);
     for (auto& kv : m_sliderValueLabels) if (IsWindow(kv.second)) DestroyWindow(kv.second);
     if (m_hTooltip) { DestroyWindow(m_hTooltip); m_hTooltip = nullptr; }
     m_fieldLabels.clear();
@@ -881,7 +887,11 @@ void SettingsDialog::ReadFieldsFromControls() {
         target = &m_editedValues[m_currentTab - 1];
     }
 
-    for (auto hCtrl : m_fieldControls) {
+    // Iterate a copy: SendMessageW below can re-enter this dialog (edit
+    // subclass proc -> HandleMessage -> OnTabChanged), which repopulates
+    // m_fieldControls and would leave a range-for walking freed storage.
+    const std::vector<HWND> controls = m_fieldControls;
+    for (auto hCtrl : controls) {
         if (!IsWindow(hCtrl)) continue;
 
         auto kit = m_controlKeys.find(hCtrl);
