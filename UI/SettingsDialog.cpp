@@ -132,6 +132,14 @@ INT_PTR SettingsDialog::Show() {
         DispatchMessageW(&msg);
     }
 
+    // The loop also ends when GetMessage returns 0 (WM_QUIT), e.g. when the
+    // Remote Init tab posts a quit for the elevated restart. That leaves the
+    // window alive while this stack object is about to die, so a later click
+    // would reach a dangling SettingsDialog* through GWLP_USERDATA (crash in
+    // OnSave -> ReadFieldsFromControls). Close the window before returning.
+    if (IsWindow(m_hwnd)) DestroyWindow(m_hwnd);
+    m_hwnd = nullptr;
+
     if (IsWindow(m_parent)) {
         EnableWindow(m_parent, TRUE);
         SetForegroundWindow(m_parent);
@@ -491,6 +499,13 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         return 0;
 
     case WM_DESTROY:
+        return 0;
+
+    case WM_NCDESTROY:
+        // Last message this window ever gets. Drop the back-pointer so a stale
+        // message cannot reach a SettingsDialog that already left the stack.
+        m_hwnd = nullptr;
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
         return 0;
     }
     return DefWindowProcW(hwnd, msg, wParam, lParam);
