@@ -9,7 +9,7 @@ Every module implements `IFeatureModule` (`Core/IFeatureModule.h`).
 ```
 Initialize(hInst, host)
     ↓
-LoadConfig()        ← reads Config_<Name>.ini
+LoadConfig()        ← reads Config/Config_<Name>.ini
     ↓
 ApplyConfig()       ← apply values to runtime state
     ↓
@@ -142,7 +142,7 @@ Modules provide items via `IFeatureModule::GetContextMenuItems()`. `ModuleManage
 
 ### Menu order control
 
-Modules appear in Function submenu sorted by priority from `Config_Pet.ini [MenuOrder]`:
+Modules appear in Function submenu sorted by priority from `Config/Config_Pet.ini [MenuOrder]`:
 
 ```ini
 [MenuOrder]
@@ -157,7 +157,7 @@ RomSeparator=700
 
 - Lower number = higher priority (appears first)
 - Default priority = 999 if not specified
-- `GetModulePriority()` reads from `Config_Pet.ini [MenuOrder]` using `GetPrivateProfileStringW`
+- `GetModulePriority()` reads from `Config/Config_Pet.ini [MenuOrder]` using `GetPrivateProfileStringW`
 - `GetMenuGroups()` uses `std::stable_sort` by priority, then assigns sequential `uniqueId`
 - Users can edit via Pet submenu → Edit Order → `MenuOrderDialog` popup
 
@@ -205,7 +205,7 @@ struct ConfigFieldDefinition {
 `ConfigManager::LoadModuleConfig(file, section, definitions)` → returns `map<key, value>`.
 `ConfigManager::SaveModuleConfig(file, section, map)` → writes each key=value.
 
-- Files stored in project root as `Config_<ModuleName>.ini`
+- Files stored under `Config/` as `Config_<ModuleName>.ini`
 - Uses Win32 `GetPrivateProfileStringW` / `WritePrivateProfileStringW`
 - Missing keys auto-filled with defaults
 
@@ -235,7 +235,7 @@ scale) and never touches the registry.
 ### Start with Windows
 
 Tab 0 ends with a `Start with Windows` checkbox. It maps to `autoStart` in
-`Config_Pet.ini`, but the **registry is the source of truth**: `PetConfig::Load()`
+`Config/Config_Pet.ini`, but the **registry is the source of truth**: `PetConfig::Load()`
 asks `Core/AutoStart`, which treats the per-user Run entry
 (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value = exe base name) as
 enabled when the value exists and its executable is still on disk.
@@ -265,7 +265,7 @@ enabled when the value exists and its executable is still on disk.
 mode, tests and cleanup on top of the same codegen. It orchestrates:
 
 1. **Scan** `Modules/*/*.module.ini` for module definitions
-2. **Scan** `Core/`, `Services/`, `UI/`, `Pet/`, `Modules/*/` for `*.cpp`
+2. **Scan** `Core/`, `Services/`, `UI/`, `Pet/`, `Tray/` **non-recursively** for `*.cpp`, plus the root `main.cpp`, `HostApp.cpp`, `GeneratedModuleRegistry.cpp`; each module contributes only the files in its `Sources=`
 3. **Generate** `GeneratedModuleRegistry.cpp` — include each module header, create `RegisterGeneratedModules()` with LoaderConfig filtering
 4. **Generate** `GeneratedBuild.mk` — `CPP_OBJS` list, `LIBS_EXTRA` concatenated from all module `.ini` files
 5. **Generate** `GeneratedIcon.*` — convert `Test.png` to `.ico` + `.rc` with a built-in PNG decoder (no Pillow dependency; Pillow is only a fallback)
@@ -393,7 +393,7 @@ Common control classes:
 - **Image**: `Pet.png` loaded via GDI+ `Bitmap::FromFile` → `GetHBITMAP` → memory DC → `UpdateLayeredWindow`
 - **Fallback**: 64×64 green rectangle if `Pet.png` missing
 - **Dragging**: `WM_NCHITTEST` returns `HTCAPTION` — entire window acts as title bar
-- **Position**: Persisted to `Config_Pet.ini` on `WM_EXITSIZEMOVE` and `WM_DESTROY`
+- **Position**: Persisted to `Config/Config_Pet.ini` on `WM_EXITSIZEMOVE` and `WM_DESTROY`
   (the in-place update relaunch kills the process, so the final save is what the
   next instance reads), restored on startup (centered if `-1`)
 - **Reachability**: a restored position is clamped into the monitor work area
@@ -419,7 +419,7 @@ When dragged within threshold of screen edge → shrink to 24×24 indicator dot 
 - Snapping is measured against the monitor the pet is on (`MonitorFromWindow` +
   `GetMonitorInfoW`), not `SM_CXSCREEN`: after an RDP resize the pet may not be
   on the monitor the primary-screen metrics describe.
-- The parked edge is persisted as `snapEdge` in `Config_Pet.ini`
+- The parked edge is persisted as `snapEdge` in `Config/Config_Pet.ini`
   (`0` free, `1..4` = top/bottom/left/right) and re-applied by
   `RestoreEdgeSnap()` at startup, so a parked pet stays parked across restarts
   and in-place updates. While parked `posX`/`posY` are **not** rewritten (the
@@ -470,7 +470,7 @@ Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
 | Message | wParam | Purpose |
 |---------|--------|---------|
 | `WM_APP_SLIDER_CHANGE` (WM_APP+2) | `ID_PET_OPACITY` (110) / `ID_PET_SCALE` (111) / `ID_PET_MOVE_STEP` (105) / `ID_PET_MOVE_SPEED` (106) | Slider value changed (+ new value or -1 to cancel) |
-| `WM_APP_RELOAD_PETCONFIG` (WM_APP+3) | — | Re-read `Config_Pet.ini` from disk |
+| `WM_APP_RELOAD_PETCONFIG` (WM_APP+3) | — | Re-read `Config/Config_Pet.ini` from disk |
 | `WM_APP_CONTEXT_ACTION` (WM_APP+4) | — | Context popup tree dismissed |
 
 ---
@@ -591,17 +591,17 @@ The host pointer lets tray commands reach `HostApp` state
 - New test files under `Debug/` are **not auto-discovered**: add a hardcoded Makefile rule
   (see AGENTS.md)
 
-| Test | File | Cases |
+| Test | File | Covers |
 |------|------|-------|
-| AutoKeyTest | `Debug/AutoKey/AutoKeyTest.cpp` | 65 — parser, VK names, modifiers, edge cases, INI roundtrip |
-| TooltipTest | `Debug/UI/TooltipTest.cpp` | 17 — Win32 tooltip cbSize, TTF_TRACK, activation ordering, mouse-move triggers |
-| DebugStateTest | `Debug/Core/DebugStateTest.cpp` | 9 — empty manager, module with/without state, direct query |
-| MenuOrderTest | `Debug/Core/MenuOrderTest.cpp` | 13 — menu ordering, unique ids, execute dispatch |
-| ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | 32 — clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
-| DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | 54 — dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
-| UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | 32 — version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
-| DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | 35 — dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
-| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | 53 — environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
+| AutoKeyTest | `Debug/AutoKey/AutoKeyTest.cpp` | Parser, VK names, modifiers, edge cases, INI roundtrip |
+| TooltipTest | `Debug/UI/TooltipTest.cpp` | Win32 tooltip cbSize, TTF_TRACK, activation ordering, mouse-move triggers |
+| DebugStateTest | `Debug/Core/DebugStateTest.cpp` | Empty manager, module with/without state, direct query |
+| MenuOrderTest | `Debug/Core/MenuOrderTest.cpp` | Menu ordering, unique ids, execute dispatch |
+| ClipboardTest | `Debug/RemoteControl/ClipboardTest.cpp` | Clipboard hook/replay roundtrip (links real `RemoteControlHook.cpp`) |
+| DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | Dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
+| UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | Version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
+| DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
+| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | Environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
@@ -806,7 +806,7 @@ pet stays hidden across a window rebuild; `RecreateMainWindow` passes
 The tray menu is rebuilt on every open, so it follows a language change for
 free. The tooltip is not: it is pushed to the shell once, and the window title
 is resolved at creation. `MainWindow::ReloadPetConfig()` (reached through
-`WM_APP_RELOAD_PETCONFIG` after the settings dialog writes `Config_Pet.ini`)
+`WM_APP_RELOAD_PETCONFIG` after the settings dialog writes `Config/Config_Pet.ini`)
 therefore reloads the translation, re-resolves the default window title (a
 title set by `ProjectName.txt` is kept verbatim) and calls
 `IHostContext::RefreshTrayTooltip()`, which `HostApp` forwards to
