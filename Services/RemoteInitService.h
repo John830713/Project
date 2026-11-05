@@ -48,6 +48,10 @@ struct RemoteInitItem {
     std::wstring id;
     std::wstring label;
     std::wstring desc;
+    // Live state shown next to the label ("已啟用" / "規則未建立" ...), so the
+    // dialog still tells the operator what is configured after an apply has
+    // cleared every "needs action" checkbox.
+    std::wstring state;
     bool checked = false;
     bool selectable = true;
 };

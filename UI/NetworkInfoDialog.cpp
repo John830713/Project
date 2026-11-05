@@ -718,7 +718,9 @@ void NetworkInfoDialog::InitRemoteTab(HWND hwnd) {
         const auto& it = m_remoteItems[i];
         UINT flags = WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX;
         if (!it.selectable) flags |= WS_DISABLED;
-        std::wstring lbl = it.label + L"  -  " + it.desc;
+        std::wstring lbl = it.label;
+        if (!it.state.empty()) lbl += L"  【" + it.state + L"】";
+        lbl += L"  -  " + it.desc;
         HWND hChk = CreateWindowW(L"BUTTON", lbl.c_str(), flags,
             MARGIN, y, WIN_W - MARGIN * 2, 20, hwnd,
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(ID_REMOTE_ITEM_BASE + (int)i)),

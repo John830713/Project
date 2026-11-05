@@ -618,43 +618,91 @@ std::vector<RemoteInitItem> RemoteInitService::GetDefaultItems(
     const RemoteInitStatus& status) const {
     std::vector<RemoteInitItem> items;
 
+    auto firewallState = [](bool exists, bool enabled) {
+        if (!exists) return std::wstring(L"規則未建立");
+        return std::wstring(enabled ? L"規則已啟用" : L"規則已停用");
+    };
+
     RemoteInitItem rdp;
     rdp.id = L"rdp";
     rdp.label = L"啟用遠端桌面 (RDP)";
     if (status.isWindowsHome) {
         rdp.desc = L"家用版不支援被遠端連線，此項目無法套用";
+        rdp.state = L"不支援";
         rdp.selectable = false;
         rdp.checked = false;
     } else {
         rdp.desc = L"允許其他機台以 mstsc 連線 (連接埠 " +
                    std::to_wstring(status.rdpPort) + L")";
+        rdp.state = status.rdpDeny == 0 ? L"已啟用" : L"未啟用";
         rdp.checked = status.rdpDeny != 0;
     }
     items.push_back(rdp);
 
-    items.push_back({ L"nla", L"啟用網路層級驗證 (NLA)",
-                      L"連線時必須先通過帳號密碼驗證", status.nlaUserAuth != 1, true });
+    RemoteInitItem nla;
+    nla.id = L"nla";
+    nla.label = L"啟用網路層級驗證 (NLA)";
+    nla.desc = L"連線時必須先通過帳號密碼驗證";
+    nla.state = status.nlaUserAuth == 1 ? L"已啟用" : L"未啟用";
+    nla.checked = status.nlaUserAuth != 1;
+    items.push_back(nla);
 
-    items.push_back({ L"rdp_firewall", L"開啟 RDP 防火牆",
-                      L"允許遠端桌面連線通過防火牆 (TCP " +
-                          std::to_wstring(status.rdpPort) + L")",
-                      !status.rdpFirewallEnabled, true });
+    RemoteInitItem rdpFirewall;
+    rdpFirewall.id = L"rdp_firewall";
+    rdpFirewall.label = L"開啟 RDP 防火牆";
+    rdpFirewall.desc = L"允許遠端桌面連線通過防火牆 (TCP " +
+                       std::to_wstring(status.rdpPort) + L")";
+    rdpFirewall.state =
+        firewallState(status.rdpFirewallRule, status.rdpFirewallEnabled);
+    rdpFirewall.checked = !status.rdpFirewallEnabled;
+    items.push_back(rdpFirewall);
 
-    items.push_back({ L"winrm", L"啟用 WinRM 遠端管理",
-                      L"啟動 WinRM 服務並建立 HTTP Listener",
-                      !status.winrmServiceRunning || !status.winrmHttpListener, true });
+    std::wstring winrmState;
+    if (status.winrmServiceRunning && status.winrmHttpListener) {
+        winrmState = L"服務與 Listener 已就緒";
+    } else if (!status.winrmServiceRunning && !status.winrmHttpListener) {
+        winrmState = L"服務與 Listener 未設定";
+    } else if (!status.winrmServiceRunning) {
+        winrmState = L"服務未執行";
+    } else {
+        winrmState = L"Listener 未建立";
+    }
 
-    items.push_back({ L"winrm_firewall", L"開啟 WinRM 防火牆 (TCP 5985)",
-                      L"允許 PowerShell 遠端連線通過防火牆",
-                      !status.winrmFirewallEnabled, true });
+    RemoteInitItem winrm;
+    winrm.id = L"winrm";
+    winrm.label = L"啟用 WinRM 遠端管理";
+    winrm.desc = L"啟動 WinRM 服務並建立 HTTP Listener";
+    winrm.state = winrmState;
+    winrm.checked = !status.winrmServiceRunning || !status.winrmHttpListener;
+    items.push_back(winrm);
 
-    items.push_back({ L"rdp_users", L"加入遠端桌面使用者群組",
-                      L"非系統管理員帳號連線 RDP 時需要",
-                      !status.userInRdpGroup, true });
+    RemoteInitItem winrmFirewall;
+    winrmFirewall.id = L"winrm_firewall";
+    winrmFirewall.label = L"開啟 WinRM 防火牆 (TCP 5985)";
+    winrmFirewall.desc = L"允許 PowerShell 遠端連線通過防火牆";
+    winrmFirewall.state =
+        firewallState(status.winrmFirewallRule, status.winrmFirewallEnabled);
+    winrmFirewall.checked = !status.winrmFirewallEnabled;
+    items.push_back(winrmFirewall);
+
+    RemoteInitItem rdpUsers;
+    rdpUsers.id = L"rdp_users";
+    rdpUsers.label = L"加入遠端桌面使用者群組";
+    rdpUsers.desc = L"非系統管理員帳號連線 RDP 時需要";
+    rdpUsers.state = status.userInRdpGroup ? L"目前使用者已在群組"
+                                           : L"目前使用者不在群組";
+    rdpUsers.checked = !status.userInRdpGroup;
+    items.push_back(rdpUsers);
 
     // Security-relevant: never enabled unless the operator ticks it.
-    items.push_back({ L"blankpass", L"允許空白密碼網路登入",
-                      L"僅限隔離測試網路，預設不勾選", false, true });
+    RemoteInitItem blankPass;
+    blankPass.id = L"blankpass";
+    blankPass.label = L"允許空白密碼網路登入";
+    blankPass.desc = L"僅限隔離測試網路，預設不勾選";
+    blankPass.state = status.limitBlankPass == 1 ? L"已限制空白密碼"
+                                                 : L"允許空白密碼";
+    blankPass.checked = false;
+    items.push_back(blankPass);
 
     return items;
 }

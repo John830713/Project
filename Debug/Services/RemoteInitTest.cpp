@@ -90,11 +90,12 @@ int main() {
 
     bool allDescribed = true;
     for (const auto& item : items) {
-        if (item.id.empty() || item.label.empty() || item.desc.empty()) {
+        if (item.id.empty() || item.label.empty() || item.desc.empty() ||
+            item.state.empty()) {
             allDescribed = false;
         }
     }
-    CHECK(allDescribed, "every item has id/label/desc");
+    CHECK(allDescribed, "every item has id/label/desc/state");
 
     const RemoteInitItem* rdp = FindItem(items, L"rdp");
     if (rdp) {

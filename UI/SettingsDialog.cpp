@@ -671,6 +671,7 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
             UINT flags = WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX;
             if (!it.selectable) flags |= WS_DISABLED;
             std::wstring lbl = it.label;
+            if (!it.state.empty()) lbl += L"  【" + it.state + L"】";
             lbl += L"  -  ";
             lbl += it.desc;
             HWND hChk = CreateWindowW(L"BUTTON", lbl.c_str(), flags,

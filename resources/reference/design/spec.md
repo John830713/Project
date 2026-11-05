@@ -1004,6 +1004,7 @@ Every change is expressed as a plain command (`reg add`, `netsh advfirewall`, `s
 Seven stable ids, in order: `rdp`, `nla`, `rdp_firewall`, `winrm`, `winrm_firewall`, `rdp_users`, `blankpass`.
 
 - Items already satisfied start unchecked (nothing to do).
+- Every row carries a live `state` string (`已啟用` / `未啟用`, `規則未建立` / `規則已停用` / `規則已啟用`, `目前使用者已在群組`, ...) rendered as `label  【state】  -  desc`. Applying satisfies the conditions and therefore unticks the rows, so the state text is what tells the operator the change took effect.
 - `rdp` is not selectable on Home editions (no RDP server).
 - `blankpass` (`LimitBlankPasswordUse=0`) is **always** unchecked; applying it emits a `[WARN]` log line.
 - The returned list is regenerated after every apply/restore, so the UI reflects reality instead of remembered state.
@@ -1022,7 +1023,7 @@ Firewall rule names are `RemoteInit-RDP-3389` / `RemoteInit-WinRM-5985` (`Remote
 
 - **Tray**: `Remote Control Init...` (`ID_TRAY_REMOTE_INIT`, label via `Tr(L"Tray", ...)`) shows the probe summary, offers `RestartElevated` when not elevated, then backups + applies the default list.
 - **Network info dialog**: two tabs. The first (`InitNetworkTab`) lists the real adapter configuration (MAC / status / speed / MTU / IPv4 + mask / IPv6 / gateway / DNS / WINS / DHCP + lease) from `GetAdaptersAddresses` + `GetAdaptersInfo`, one copy button per row. The second (`InitRemoteTab`) shows a read-only multi-line `EDIT` with the full live RDP / WinRM / firewall / group state (selectable for copy), one checkbox per item, plus 重新檢查 / 備份目前設定 / 從備份還原 / 套用所選項目.
-- **Settings dialog**: `Remote Init` tab at index `1 + modules.size()` (`__remoteinit__<id>` control keys map back to item ids).
+- **Settings dialog**: `Remote Init` tab at index `1 + modules.size()` (`__remoteinit__<id>` control keys map back to item ids). Each row is `label 【current state】 - desc`.
 
 ### Tests
 
