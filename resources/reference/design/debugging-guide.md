@@ -45,12 +45,12 @@ too. `Log\Main.txt` therefore tells you what kind of exit happened:
 
 | `Log\Main.txt` content | Meaning | Where |
 |---|---|---|
-| only `initialization started` | `MainWindow::Create` failed, `wWinMain` returned 1 | `main.cpp:36`, message in `Log\Error.txt` |
-| `initialization completed`, **no** `shutdown completed` | crash mid-run (no clean unwind) | `HostApp.cpp:77` vs `:118` |
-| both lines present | clean exit — something posted `WM_QUIT` | `MainWindow.cpp:846` (WM_DESTROY) or `:930` (ID_EXIT) |
+| only `initialization started` | `HostApp::Initialize` failed, `wWinMain` returned 1 | `HostApp.cpp` (`initialization started`), failure detail in `Log\Error.txt` |
+| `initialization completed`, **no** `shutdown completed` | crash mid-run (no clean unwind) | `HostApp::Initialize` vs `HostApp::Shutdown` |
+| both lines present | clean exit — something posted `WM_QUIT` | `MainWindow` `WM_DESTROY` or the `ID_EXIT` command |
 
 Release has no `debug_log.txt`: `DBG()` compiles to nothing unless
-`-DDEBUG_CONSOLE=1` (`Core/DebugConsole.h:5-9`).
+`-DDEBUG_CONSOLE=1` (see the `#if DEBUG_CONSOLE` guard in `Core/DebugConsole.h`).
 
 ## 3. Never write a user-supplied path with `std::wofstream`
 
@@ -123,10 +123,11 @@ A linked test binary needs `ucrt64\bin` on `PATH` or it fails to start with
 "Release build exits silently after ~7 seconds" is not a diagnosis. Two dead ends
 came from treating details in the report as load-bearing:
 
-- The ~7 s figure matches the `DEBUG_CONSOLE` AUTOTEST timer chain
+- The ~7 s figure matches the `PET_AUTOTEST` timer chain
   (`3000+600+800+800+500+800+300+500 = 7100 ms`, then `PostQuitMessage`) which is a
-  **documented, intentional** feature (`design/spec.md`, "MainWindow auto-test"). It
-  is compiled out of Release and was irrelevant to the actual bug.
+  **documented, intentional** feature (`design/spec.md`, "MainWindow auto-test"). It is
+  gated on `PET_AUTOTEST`, which no current build config defines — `DEBUG_CONSOLE`
+  does **not** enable it — so it was irrelevant to the actual bug.
 - CJK path was assumed to be the cause before measuring.
 
 Ask which menu item was chosen, whether any dialog appeared, and whether the timing
@@ -154,7 +155,7 @@ that the AUTOTEST exists on purpose. Check in this order:
   tools work standalone.
 - Release idle test: launch `Project.exe`, wait ~12 s, confirm the process is alive
   and `Log\Main.txt` shows `initialization completed` with no `shutdown completed`.
-- Verify with `mingw32-make test` (8 test executables, 0 = pass). The `test` recipe
+- Verify with `mingw32-make test` (10 test executables, 0 = pass). The `test` recipe
   uses cmd.exe syntax (`for %%t in (...) do`), so when invoking make from PowerShell
   pass `SHELL=cmd.exe`: `mingw32-make SHELL=cmd.exe test`. Without it make picks the
   MSYS `sh` and dies with `syntax error near unexpected token '('`.
