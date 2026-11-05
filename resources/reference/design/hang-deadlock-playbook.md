@@ -82,8 +82,9 @@ nm -n --defined-only Debug\Project.exe | Out-File -Encoding ascii syms.txt
 ```
 
 Then binary-search the target VMA against the sorted symbol addresses and demangle
-with `c++filt`. A machine-local `.agent/map_offsets.py` helper automates this (edit its
-`targets` list); `.agent/` is gitignored, so recreate it if it is missing.
+with `c++filt`. A one-off `.agent/map_offsets.py` helper automates this (edit its
+`targets` list). `.agent/` is scratch space for single-use scripts — gitignored and
+disposable; only promote a helper to `resources/tools/local/` once it proves stable.
 
 **Pitfall:** `nm ... > file` / `Out-File` default on Windows PowerShell 5.1 is UTF-16
 LE, so a naive reader sees `\x00` between every character. Always pass
@@ -115,9 +116,10 @@ Rules that follow (apply to every module with a worker thread):
 
 ## Step 6 — verify with a bounded repro harness
 
-Do not eyeball it — assert the exit time. A machine-local `.agent/hang-test.ps1`
-(gitignored; recreate if missing) launches a build, waits
-for `PetMainWindowClass`, posts `WM_CLOSE`, then `WaitForExit` with a hard timeout:
+Do not eyeball it — assert the exit time. Write a one-off `.agent/hang-test.ps1`
+(gitignored scratch; promote it to `resources/tools/local/` once stable) that launches
+a build, waits for `PetMainWindowClass`, posts `WM_CLOSE`, then `WaitForExit` with a
+hard timeout:
 
 ```powershell
 powershell -File .agent\hang-test.ps1 -Exe D:\Project\Project.exe

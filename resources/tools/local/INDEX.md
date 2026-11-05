@@ -2,6 +2,10 @@
 
 Machine-specific debug & dev tools for this project.
 
+`.agent/` is scratch space for single-use scripts and logs — gitignored and
+disposable. A helper only belongs here once it is stable and reusable; until then
+keep it in `.agent/`.
+
 ## Scripts
 
 | Script | Purpose |
