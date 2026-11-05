@@ -11,14 +11,14 @@ D:\Project/
 ├── Config/BuildUI.json      Machine-local build config (release/debug, carrier, flavour; gitignored)
 ├── ProjectPackager.py       Packaging report / export-clean
 ├── ProjectSnapshot.py       Project context snapshot for agents
-├── GenerateModuleRegistry.* Auto-generated (by BuildUI.py)
+├── GeneratedModuleRegistry.* Auto-generated (by BuildUI.py)
 ├── GeneratedBuild.mk        Auto-generated (by BuildUI.py)
 ├── GeneratedIcon.*          Auto-generated (by BuildUI.py)
 ├── GeneratedVersion.*       Auto-generated (by BuildUI.py) — FILEVERSION resource
 ├── TranslationRes.rc        Embeds Translation/zh-TW.ini as RCDATA
 ├── Pet.png                  Desktop pet image (loaded by MainWindow)
-├── Config_Pet.ini           Pet config (opacity, scale, position, move, snap edge, start with Windows)
-├── Config_*.ini             Per-module config files
+├── Config/Config_Pet.ini    Pet config (opacity, scale, position, move, snap edge, start with Windows)
+├── Config/Config_*.ini      Per-module config files
 ├── Log/                     Log files per module
 ├── debug_log.txt            Debug console log (DEBUG_CONSOLE only)
 │
@@ -44,17 +44,21 @@ D:\Project/
 │   ├── ClipboardService     Win32 clipboard wrappers
 │   ├── ChecksumService      CRC/hash computation
 │   ├── NetworkService       WinSock2 client/server wrappers
-│   └── FileTransferService  File transfer over network
+│   ├── FileTransferService  File transfer over network
+│   ├── ProcessRunner        CreateProcessW with pipes, timeout, elevation helpers
+│   └── RemoteInitService    One-shot RDP/WinRM enablement (probe, apply, restore)
 │
 ├── Pet/                     Desktop pet GDI+ layered window
-│   ├── MainWindow.h/.cpp    2303 lines — the core: render, popups, move, edge-snap
+│   ├── MainWindow.h/.cpp    The core: render, popups, move, edge-snap, drop dispatch
 │   └── PetConfig.h/.cpp     Config load/save for pet (opacity, scale, position, etc.)
 │
 ├── Tray/                    System-tray shell (message window + Shell_NotifyIcon)
 │   └── TrayHost.h/.cpp       Icon, tray menu, in-process pet rebuild watchdog
 │
-├── UI/                      Dialogs
+├── UI/                      Dialogs and launcher window
 │   ├── SettingsDialog.h/.cpp Settings window: tabbed per-module config + pet fields
+│   ├── MenuOrderDialog.h/.cpp Context-menu ordering editor
+│   ├── ModuleLauncherWindow.h/.cpp Window-carrier module list
 │   └── NetworkInfoDialog.h/.cpp Network info display (IPv4 adapters, copy buttons)
 │
 ├── Modules/                 Feature plugin modules (each is a .module.ini package)
@@ -70,16 +74,17 @@ D:\Project/
 │   └── WebAgent/            HTTP bridge for the Tampermonkey Web Agent (C++ port)
 │
 ├── Debug/                   Test code (not built by default, `make test`)
-│   ├── AutoKey/AutoKeyTest.cpp    65 tests: parser, VK names, INI roundtrip
-│   ├── UI/TooltipTest.cpp         17 tests: tooltip control behavior
-│   ├── Core/DebugStateTest.cpp    9 tests: IDebugStateProvider pattern
-│   ├── Core/MenuOrderTest.cpp     13 tests: menu ordering, unique ids, dispatch
-│   ├── Core/UpdateManagerTest.cpp 29 tests: version ordering, swap rollback, backup cleanup
-│   ├── RemoteControl/ClipboardTest.cpp 32 tests: clipboard image/text sync (text+DIB round-trip, wire pack/unpack)
-│   ├── RemoteControl/DisconnectTest.cpp 54 tests: dead-peer timeouts, epoch generations, Stop latency
-│   ├── RemoteControl/DiagnosticsTest.cpp 35 tests: diagnostics/health probes
-│   ├── WebAgent/WebAgentTest.cpp   63 tests: URL decode, router, static, full command protocol
-│   └── UI/GuiTest.cpp             E2E GUI test (no Makefile target, manual compile)
+│   ├── AutoKey/AutoKeyTest.cpp          Parser, VK names, INI roundtrip
+│   ├── UI/TooltipTest.cpp               Tooltip control behavior
+│   ├── Core/DebugStateTest.cpp          IDebugStateProvider pattern
+│   ├── Core/MenuOrderTest.cpp           Menu ordering, unique ids, dispatch
+│   ├── Core/UpdateManagerTest.cpp       Version ordering, swap rollback, backup cleanup
+│   ├── RemoteControl/ClipboardTest.cpp  Clipboard image/text sync (text+DIB round-trip, wire pack/unpack)
+│   ├── RemoteControl/DisconnectTest.cpp Dead-peer timeouts, epoch generations, Stop latency
+│   ├── RemoteControl/DiagnosticsTest.cpp Diagnostics/health probes
+│   ├── WebAgent/WebAgentTest.cpp        URL decode, router, static files, full command protocol
+│   ├── Services/RemoteInitTest.cpp      State probe, command planning, restore
+│   └── UI/GuiTest.cpp                   E2E GUI test (no Makefile target, manual compile)
 │
 ├── Translation/             Generated merged locale (Translation/zh-TW.ini)
 │
