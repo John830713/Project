@@ -48,3 +48,4 @@ Navigation: [INDEX.md](INDEX.md) (directory chain) · [resources/reference/proje
 ## Workflow
 
 - Work in small, self-contained slices and commit each as soon as it is verified. A long multi-file pass can run out of tokens mid-way and leave everything uncommitted; one logical change per commit is recoverable, a half-finished sweep is not.
+- `.agent/` is disposable scratch space for one-off scripts and logs (gitignored). Promote a helper to `resources/tools/local/` (and its INDEX) only once it proves stable and reusable.
