@@ -58,7 +58,7 @@ if ($Status) {
         Write-Host "Current config ($configPath):" -ForegroundColor Cyan
         Get-Content $configPath
     } else {
-        Write-Host "No config file. All 7 modules are loaded (default)." -ForegroundColor Yellow
+        Write-Host "No config file. All modules are loaded (default)." -ForegroundColor Yellow
     }
     return
 }
@@ -82,7 +82,14 @@ if ($Modules) {
         Write-Host "Available: $($available -join ', ')" -ForegroundColor Yellow
         exit 1
     }
-    Write-JsonConfig -ModuleList $selected -Mode "pet"
+    # Selecting modules must not reset the carrier; keep whatever mode the
+    # existing config asked for (default: pet).
+    $mode = "pet"
+    if (Test-Path $configPath) {
+        try { $mode = (Get-Content $configPath -Raw | ConvertFrom-Json).mode } catch { }
+        if (-not $mode) { $mode = "pet" }
+    }
+    Write-JsonConfig -ModuleList $selected -Mode $mode
     Write-Host "Next start will load: $($selected -join ', ')" -ForegroundColor Cyan
     return
 }
