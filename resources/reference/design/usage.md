@@ -97,12 +97,12 @@ The MenuOrder dialog (`UI/MenuOrderDialog.h/.cpp`) allows users to reorder modul
 1. Access via Pet submenu → Edit Order
 2. Shows scrollable listbox with module names + priority numbers
 3. ▲▼ buttons move selected item up/down (swaps priority values)
-4. Save writes to `Config_Pet.ini [MenuOrder]` section
+4. Save writes to `Config/Config_Pet.ini [MenuOrder]` section
 5. ModuleManager reads priority on next menu open
 
 ### To add new module to menu order
 
-1. Add entry in `Config_Pet.ini [MenuOrder]` with desired priority number
+1. Add entry in `Config/Config_Pet.ini [MenuOrder]` with desired priority number
 2. ModuleManager::GetMenuGroups() will sort by priority automatically
 
 ---

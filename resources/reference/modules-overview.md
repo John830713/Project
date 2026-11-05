@@ -82,7 +82,7 @@ Every `*Types.h` includes only standard library headers. Never references Core o
 
 - `BuildUI.py --generate` scans `Modules/*/*.module.ini`
 - `GeneratedModuleRegistry.cpp` auto-registers all enabled modules
-- `HostApp.cpp:70` calls `RegisterGeneratedModules()`
+- `HostApp::Initialize` calls `RegisterGeneratedModules()`
 - `Enabled=0` in `.module.ini` excludes a module from build
 
 ## Creating a New Module
