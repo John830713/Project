@@ -56,12 +56,14 @@ py BuildUI.py --clear        :: make distclean
 ## 編譯參數
 
 ```
-g++ -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode -c <file>.cpp -o <file>.o
+g++ -O2 -Wall -std=c++17 -MMD -MP -static-libgcc -static-libstdc++ -static -municode -D__USE_MINGW_ANSI_STDIO=1 -D_CRT_SECURE_NO_WARNINGS -c <file>.cpp -o <file>.o
 windres TranslationRes.rc -O coff -o TranslationRes.o
 windres GeneratedIcon.rc -O coff -o GeneratedIcon.o
-Link: -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -luuid -lwinmm -mwindows
-      -lversion -liphlpapi -lcomdlg32
+Link: -lgdiplus -lgdi32 -luser32 -lkernel32 -lcomctl32 -lshell32 -lws2_32 -lole32 -loleaut32
+      -luuid -lwinmm -mwindows -lversion -lstdc++fs -liphlpapi -lcomdlg32 -lnetapi32
 ```
+
+模組可用 `Libraries=` 追加鏈結參數（合併進 `GeneratedBuild.mk` 的 `LIBS_EXTRA`）。
 
 ## 注意事項
 
