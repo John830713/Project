@@ -656,13 +656,13 @@ The point of an in-place update is that double-clicking a newer build makes the 
 - The spawned child sees `--reload-wait` in `pCmdLine` → `SetReloadWaitRequested(true)` → `BeginSession(..., waitForHandoff=true)` retries the single-instance mutex 40×150 ms (≈6 s) for the old instance to release it, instead of bailing with "already running". It then claims primary and runs the new build.
 - `PollReloadRequest` waits on the held handle directly (not `OpenEventW` by name); `SignalReload`'s `CreateEventW` returns the already-open object. This is why the primary must hold the event open — otherwise the signal is lost.
 
-Verified end-to-end by `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid runs from the registered path with the newer version, `Log/Main.txt` records the relaunch, and the updater process exits. Re-verified against the real install (`D:\Program Files\Project`) on 2026-11-04: launching the newer dev build replaced the installed exe, the installed instance relaunched from its own path with the new version, and the `*.old` backup was cleaned up by that relaunch.
+Verified end-to-end by the machine-local, gitignored `.agent/swap-smoke.ps1` (10/10): old pid exits, a new pid runs from the registered path with the newer version, `Log/Main.txt` records the relaunch, and the updater process exits. Re-verified against the real install (`D:\Program Files\Project`) on 2026-11-04: launching the newer dev build replaced the installed exe, the installed instance relaunched from its own path with the new version, and the `*.old` backup was cleaned up by that relaunch.
 
 ### Resume state (`RemoteControlModule`)
 
 The start/stop context-menu handlers persist a `ResumeState` flag (0/1) straight in `Config_RemoteControl.ini` — deliberately **outside** `m_definitions`, so it never appears in the settings UI and `SaveConfig` never touches it. `ApplyConfig` starts RemoteControl when `AutoStart` **or** `ResumeState` is set, and `Shutdown()`/the destructor stop the service **without** clearing the flag. A session that ends while RemoteControl is active (including a restart after an in-place update) therefore resumes where it left off; only an explicit menu **Stop** writes 0.
 
-Covered by `UpdateManagerTest` (32 checks).
+Covered by `UpdateManagerTest`.
 
 ---
 
@@ -699,7 +699,7 @@ Handled in **both** recv loops (`RunSvRecv` and the client-side loop), so a serv
 controller, or a disconnected target can all be probed or upgraded. `WireTap=1` mirrors
 every frame (outbound `TX` / inbound `RX`) into the module log with its type and length.
 
-Covered by `DiagnosticsTest` (35 checks) and the six-phase E2E in
+Covered by `DiagnosticsTest` and the six-phase E2E in the machine-local, gitignored
 `.agent/e2e-backdoor.ps1` (boot+connect, A→B diag, B→A diag, version-gate refusal,
 version bump + restart + reconnect, successful swap).
 
@@ -847,8 +847,9 @@ subsystem over the named-pipe server:
 `HostApp::DebugDestroyMainWindow()` suppresses the `WM_DESTROY` quit and leaves
 `m_mainWindow`/`m_window` pointing at the dead window so the watchdog sees it
 missing and rebuilds it — the only way to test the recovery path without a real
-crash. Behaviour is verified by `.agent/tray-smoke.ps1` (15 checks: status,
-hide/show, reset while hidden/visible, watchdog ticking, killwindow + rebuild).
+crash. Behaviour is verified by the machine-local, gitignored `.agent/tray-smoke.ps1`
+(15 checks: status, hide/show, reset while hidden/visible, watchdog ticking,
+killwindow + rebuild).
 
 ### Logging & strings
 
