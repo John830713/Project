@@ -73,15 +73,15 @@ see "Simulate at the function level" in [debugging-guide.md](debugging-guide.md)
 
 | Source | Location |
 |---|---|
-| main window `WM_DESTROY` | `Pet/MainWindow.cpp:846` |
-| context menu Exit (`ID_EXIT`) | `Pet/MainWindow.cpp:930` |
+| main window `WM_DESTROY` | `Pet/MainWindow.cpp`, `MainWindow::WndProc` `WM_DESTROY` |
+| context menu Exit (`ID_EXIT`) | `Pet/MainWindow.cpp`, `ID_EXIT` command handler |
 | debug console `quit` command | debug builds only |
 
 If the user did not choose Exit, something destroyed the main window. Instrument the
-drop path — `OnDropFiles` (`MainWindow.cpp:964`), `ShowDropActionMenu`
-(`MainWindow.cpp:2290`), and `ModuleManager::GetDropActions` /
-`ExecuteDropAction` (`Core/ModuleManager.cpp:82`/`:104`) currently write **no logs at
-all**. Add `Logger::Write` calls to each and the ambiguity disappears.
+drop path — `MainWindow::OnDropFiles`, `MainWindow::ShowDropActionMenu`, and
+`ModuleManager::GetDropActions` / `ExecuteDropAction` (`Core/ModuleManager.cpp`)
+currently write **no logs at all**. Add `Logger::Write` calls to each and the ambiguity
+disappears.
 
 Note `HostApp::Run()` uses `while (GetMessageW(...))` without checking `-1`: a
 `GetMessageW` error silently ends the loop. It now breaks with an `Error` log entry
@@ -91,7 +91,7 @@ and returns 1.
 
 | Symptom | Look at |
 |---|---|
-| exits after ~7 s in a **debug** build | AUTOTEST — intentional, `design/spec.md` §9 |
+| exits after ~7 s in a `PET_AUTOTEST` build | auto-test — intentional, `design/spec.md` §9 (not enabled by `DEBUG_CONSOLE`) |
 | dies on drop + "Get Checksum" + CJK path | `std::wofstream` + CJK — fixed in `Core/Logger.cpp` |
 | `Log\Main.txt` stops mid-entry | process died inside that `Logger::Write` |
 | `0xC0000135` running a test `.exe` | add `ucrt64\bin` to `PATH` |
