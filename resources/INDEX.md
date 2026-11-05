@@ -1,10 +1,9 @@
-# Resources — New machine starting reference
+# Resources — project reference
 
-Copy this template to `D:\Agent\resources\` when setting up a new machine:
-
-```powershell
-Copy-Item -Recurse "D:\Agent\template\resources" "D:\Agent\resources"
-```
+Agent-facing documentation and local development scripts for this project. Every
+directory has an `INDEX.md` + `.index.json` node; follow the chain instead of
+scanning files, and verify it with
+`python D:\Agent\resources\tools\common\chain-check\chain_check.py --root D:\Project --verify`.
 
 ## Forward links
 
@@ -18,22 +17,20 @@ Copy-Item -Recurse "D:\Agent\template\resources" "D:\Agent\resources"
 
 - [INDEX.md](../INDEX.md)
 
-## Notes
-
-- This template is tracked by git and serves as the starting reference for new machines
-- `D:\Agent\resources\` also contains force-tracked content not in this template
-
 ## Structure
 
 ```
 resources/
-├── tools/              # Tool docs (common → D:\Agent, local → project)
-│   ├── common/         → D:\Agent\resources\tools\common\
-│   └── local/          # Project scripts + external tool refs
-├── skills/             → D:\Agent\resources\skills\
-└── reference/          # Reference topics
-    ├── design/         # Tampermonkey UI patterns (project-specific)
+├── tools/
+│   ├── common/         # Pointer to D:\Agent\resources\tools\common\
+│   └── local/          # Project scripts (build, tests, logs, module picker)
+├── skills/             # Pointer to D:\Agent\resources\skills\
+└── reference/          # Project docs
+    ├── design/         # Architecture, debugging guides, playbooks
     ├── chain/          # INDEX chain specification
-    ├── *.md            # Project-specific docs
-    └── common/         → D:\Agent\resources\reference\ (conventions, git, log, ...)
+    ├── autoit-v3/      # AutoIt window classes / messages
+    └── *.md            # Layout, build, module and setup notes
 ```
+
+Machine-local framework resources (`D:\Agent\resources\`) are read-only from this
+project; project-specific additions go here.
