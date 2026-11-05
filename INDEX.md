@@ -10,7 +10,7 @@ Windows desktop pet with ROM plugin system. Win32 API + GDI+ + C++17, MinGW/g++.
 | [Services/](Services/INDEX.md) | Stateless singleton services (i18n, file, network) |
 | [Pet/](Pet/INDEX.md) | Desktop pet transparent GDI+ window |
 | [Tray/](Tray/INDEX.md) | System-tray shell (icon, menu, watchdog, pet visibility) |
-| [UI/](UI/INDEX.md) | Settings dialog (Pet + per-module tabs) |
+| [UI/](UI/INDEX.md) | Settings/menu-order dialogs and the window-carrier launcher |
 | [Debug/](Debug/INDEX.md) | Module-level debug content (unit tests, test utils, E2E GUI test) |
 | [Translation/](Translation/INDEX.md) | Localization sources |
 | [resources/](resources/INDEX.md) | Tool docs, skills, reference |
@@ -43,7 +43,7 @@ See [resources/reference/modules-overview.md](resources/reference/modules-overvi
 | `ProjectSnapshot.py` | Project context snapshot for agents |
 | `TranslationRes.rc` | Embeds `Translation/zh-TW.ini` as RCDATA |
 | `Pet.png` | Desktop pet image (loaded by MainWindow) |
-| `Test.png` | Icon source (used by BuildUI.py if no .ico file) |
+| `Test.png` | Icon source — the build uses the first root image alphabetically, so no other image may sit beside it |
 | `AGENTS.md` | Agent startup guide (build commands, shell environment) |
 
 ## Referenced by
