@@ -660,7 +660,7 @@ Verified end-to-end by the machine-local, gitignored `.agent/swap-smoke.ps1` (10
 
 ### Resume state (`RemoteControlModule`)
 
-The start/stop context-menu handlers persist a `ResumeState` flag (0/1) straight in `Config_RemoteControl.ini` — deliberately **outside** `m_definitions`, so it never appears in the settings UI and `SaveConfig` never touches it. `ApplyConfig` starts RemoteControl when `AutoStart` **or** `ResumeState` is set, and `Shutdown()`/the destructor stop the service **without** clearing the flag. A session that ends while RemoteControl is active (including a restart after an in-place update) therefore resumes where it left off; only an explicit menu **Stop** writes 0.
+The start/stop context-menu handlers persist a `ResumeState` flag (0/1) straight in `Config/Config_RemoteControl.ini` — deliberately **outside** `m_definitions`, so it never appears in the settings UI and `SaveConfig` never touches it. `ApplyConfig` starts RemoteControl when `AutoStart` **or** `ResumeState` is set, and `Shutdown()`/the destructor stop the service **without** clearing the flag. A session that ends while RemoteControl is active (including a restart after an in-place update) therefore resumes where it left off; only an explicit menu **Stop** writes 0.
 
 Covered by `UpdateManagerTest`.
 

@@ -134,7 +134,7 @@ Note: `RunSend` and `RunSvRecv` may both decide the connection is lost; each cle
 
 ## Resume State (AutoStart / ResumeState)
 
-`ApplyConfig` starts RemoteControl when `AutoStart` **or** the internal `ResumeState` flag (0/1) is set. `ResumeState` is written **only** by the start/stop context-menu handlers, straight into `Config_RemoteControl.ini` — it is deliberately kept out of `m_definitions`, so it never shows up in the settings UI and `SaveConfig` (which snapshots `m_values`) never overwrites it. `Shutdown()` and the module destructor stop RemoteControl but do **not** clear the flag: a session that ends while RemoteControl is active — including a restart after an in-place executable update (spec §10) — resumes where it left off. Only an explicit menu **Stop** writes 0.
+`ApplyConfig` starts RemoteControl when `AutoStart` **or** the internal `ResumeState` flag (0/1) is set. `ResumeState` is written **only** by the start/stop context-menu handlers, straight into `Config/Config_RemoteControl.ini` — it is deliberately kept out of `m_definitions`, so it never shows up in the settings UI and `SaveConfig` (which snapshots `m_values`) never overwrites it. `Shutdown()` and the module destructor stop RemoteControl but do **not** clear the flag: a session that ends while RemoteControl is active — including a restart after an in-place executable update (spec §10) — resumes where it left off. Only an explicit menu **Stop** writes 0.
 
 ## LED Status Windows
 
