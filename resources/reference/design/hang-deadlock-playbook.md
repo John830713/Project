@@ -82,8 +82,8 @@ nm -n --defined-only Debug\Project.exe | Out-File -Encoding ascii syms.txt
 ```
 
 Then binary-search the target VMA against the sorted symbol addresses and demangle
-with `c++filt`. `.agent/map_offsets.py` is a ready-made script for this (edit the
-`targets` list).
+with `c++filt`. A machine-local `.agent/map_offsets.py` helper automates this (edit its
+`targets` list); `.agent/` is gitignored, so recreate it if it is missing.
 
 **Pitfall:** `nm ... > file` / `Out-File` default on Windows PowerShell 5.1 is UTF-16
 LE, so a naive reader sees `\x00` between every character. Always pass
@@ -109,13 +109,14 @@ Rules that follow (apply to every module with a worker thread):
 - Corollary: any thread you `join()` during shutdown must be able to finish without
   the joining thread doing anything. `detach()` hides the deadlock; it does not avoid
   the cross-thread call.
-- Registry of the fix: `Modules/RemoteControl/RemoteControlModule.cpp:1011`
-  (`SWP_ASYNCWINDOWPOS`) and `:1019` (epoch re-check after `Sleep` so shutdown skips
-  the move).
+- Registry of the fix: `RemoteControlModule::UpdateLedPositions` passes
+  `SWP_ASYNCWINDOWPOS`, and `RemoteControlModule::RunLeds` re-checks the epoch after
+  its `Sleep` so shutdown skips the move.
 
 ## Step 6 — verify with a bounded repro harness
 
-Do not eyeball it — assert the exit time. `.agent/hang-test.ps1` launches a build, waits
+Do not eyeball it — assert the exit time. A machine-local `.agent/hang-test.ps1`
+(gitignored; recreate if missing) launches a build, waits
 for `PetMainWindowClass`, posts `WM_CLOSE`, then `WaitForExit` with a hard timeout:
 
 ```powershell

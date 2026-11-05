@@ -72,7 +72,7 @@ The LED mover thread (`RunLeds`) is **joinable**: `DestroyLeds` joins it (outsid
 > `SetWindowPos` from that worker blocks until the UI thread pumps, and during
 > shutdown the UI thread is inside `DestroyLeds`' `join()` — circular wait, the UI
 > never pumps, `AppHangB1`. `UpdateLedPositions` therefore passes
-> `SWP_ASYNCWINDOWPOS` (`RemoteControlModule.cpp:1011`). Any future cross-thread
+> `SWP_ASYNCWINDOWPOS` (in `RemoteControlModule::UpdateLedPositions`). Any future cross-thread
 > window call here (`ShowWindow`, `SendMessage`, ...) needs the same treatment. Made
 > the thread joinable in `8eca1f1`; deadlock fixed in `8cb024d`
 > ([hang-deadlock-playbook.md](design/hang-deadlock-playbook.md)).
