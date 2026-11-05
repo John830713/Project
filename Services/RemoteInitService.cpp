@@ -30,6 +30,14 @@ const wchar_t* const kLsaKey = L"SYSTEM\\CurrentControlSet\\Control\\Lsa";
 const wchar_t* const kVersionKey =
     L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
 
+// reg.exe needs a root key name (HKLM\\...) while the constants above are
+// relative to HKEY_LOCAL_MACHINE for RegGetValueW; prefix it here so both
+// paths stay in sync.
+std::wstring RegAddCommand(const wchar_t* key, const wchar_t* name, long value) {
+    return L"reg add \"HKLM\\" + std::wstring(key) + L"\" /v " + name +
+           L" /t REG_DWORD /d " + std::to_wstring(value) + L" /f";
+}
+
 DWORD ReadDword(const wchar_t* key, const wchar_t* name, DWORD fallback) {
     DWORD value = fallback;
     DWORD size = sizeof(value);
@@ -656,15 +664,11 @@ bool RemoteInitService::ApplyItem(const std::wstring& id,
                                   std::vector<std::wstring>& logs) const {
     if (id == L"rdp") {
         return RunStep(L"啟用遠端桌面 (fDenyTSConnections=0)",
-                       L"reg add \"" + std::wstring(kRdpKey) +
-                           L"\" /v fDenyTSConnections /t REG_DWORD /d 0 /f",
-                       logs);
+                       RegAddCommand(kRdpKey, L"fDenyTSConnections", 0), logs);
     }
     if (id == L"nla") {
         return RunStep(L"啟用 NLA (UserAuthentication=1)",
-                       L"reg add \"" + std::wstring(kRdpTcpKey) +
-                           L"\" /v UserAuthentication /t REG_DWORD /d 1 /f",
-                       logs);
+                       RegAddCommand(kRdpTcpKey, L"UserAuthentication", 1), logs);
     }
     if (id == L"rdp_firewall") {
         DWORD port = ReadDword(kRdpTcpKey, L"PortNumber", 3389);
@@ -676,9 +680,7 @@ bool RemoteInitService::ApplyItem(const std::wstring& id,
     if (id == L"blankpass") {
         logs.push_back(L"[WARN] 空白密碼登入會讓同網段任何帳號在無密碼時登入");
         return RunStep(L"允許空白密碼網路登入 (LimitBlankPasswordUse=0)",
-                       L"reg add \"" + std::wstring(kLsaKey) +
-                           L"\" /v LimitBlankPasswordUse /t REG_DWORD /d 0 /f",
-                       logs);
+                       RegAddCommand(kLsaKey, L"LimitBlankPasswordUse", 0), logs);
     }
     if (id == L"rdp_users") {
         std::wstring user = userName.empty() ? CurrentUserName() : userName;
@@ -870,9 +872,7 @@ bool RemoteInitService::RestoreBackup(const std::wstring& path) const {
 
     auto regStep = [&](const wchar_t* key, const wchar_t* name, long value) {
         if (!RunStep(std::wstring(L"還原 ") + name + L"=" + std::to_wstring(value),
-                     L"reg add \"" + std::wstring(key) + L"\" /v " + name +
-                         L" /t REG_DWORD /d " + std::to_wstring(value) + L" /f",
-                     logs)) {
+                     RegAddCommand(key, name, value), logs)) {
             ok = false;
         }
     };
