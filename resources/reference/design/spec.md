@@ -610,7 +610,8 @@ The host pointer lets tray commands reach `HostApp` state
 | DisconnectTest | `Debug/RemoteControl/DisconnectTest.cpp` | Dead-peer timeouts, self-deadlock, keepalive, epoch generations, reconnect survival, spawn-once, Stop latency (links real `NetworkService.cpp` + `FileTransferService.cpp`) |
 | UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | Version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
-| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | Environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
+| RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | Environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `AdminCommand.cpp` + `CommandLine.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
+| AdminCommandTest | `Debug/Services/AdminCommandTest.cpp` | Command-line quoting, apply/restore argument building, `RESULT=OK|FAIL` parsing, UTF-8 result-file round trip (CJK), `--admin` detection, shared `--name value` parser (links real `AdminCommand.cpp` + `CommandLine.cpp` + `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
 | PetDiscoveryTest | `Debug/Services/PetDiscoveryTest.cpp` | Beacon codec: ASCII / CJK round-trip, bad magic, short packet, invalid UTF-8, control-char sanitization, empty name, no peers before `Start()` (links real `PetDiscoveryService.cpp` + `NetworkService.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
@@ -634,6 +635,8 @@ Each build embeds an auto-generated VERSIONINFO: `FILEVERSION (YYYY, MMDD, HHMM,
 ### Startup gate (`main.cpp` → `UpdateManager::BeginSession`)
 
 Called after `ConfigManager::Initialize` / `Logger::Initialize` (crash handlers already installed) and an early `TranslationService::Load(PetConfig::Load().language)` — **before the main window exists**. Returning `false` exits `wWinMain` with 0; a second copy never starts.
+
+- An `--admin <op> ... --result <file>` command line is dispatched **before** this gate (§15). The temporary elevated helper is a second process by design; running it through the single-instance check would make it exit without doing the work.
 
 | Situation | Detection | Action |
 |-----------|-----------|--------|
@@ -762,7 +765,7 @@ shell renders it):
 Show Pet / Hide Pet     — toggle pet visibility (double-click also toggles)
 Settings                — open the pet settings dialog
 Reset Pet Window        — recreate the pet window in-process
-Remote Control Init...  — elevate, back up, then apply the checked RDP/WinRM items (§15)
+Remote Control Init...  — back up, then apply the suggested RDP/WinRM items (§15)
 ---
 <module groups>         — GetMenuGroups(), one submenu per module
 ---
@@ -990,12 +993,14 @@ Live verification was done against the real `Project.exe` and the real `D:\Tampe
 
 One-shot "make this machine remotely controllable" helper. It lives in `Services/` rather than `Modules/` because it has no module lifecycle, config file, or menu group — it is a technical service the existing dialogs and tray menu call directly.
 
-### Two layers
+### Three layers
 
 | File | Responsibility |
 |------|----------------|
 | `Services/ProcessRunner.h/cpp` | `CreateProcessW` on `cmd.exe /c <args>` with `CREATE_NO_WINDOW`, pipes for stdout+stderr, 60 s default timeout, `IsElevated()`, `RestartElevated()` (ShellExecuteEx `runas`), `GetProductName()` / `IsWindowsHome()` |
-| `Services/RemoteInitService.h/cpp` | State probe, checkbox list, JSON backup, restore, apply |
+| `Services/RemoteInitService.h/cpp` | State probe, checkbox list, JSON backup, restore, apply; `*Elevated` wrappers that hand the work to `AdminCommand` |
+| `Services/AdminCommand.h/cpp` | `--admin` dispatch, UAC launch of a second copy of the same exe, temp result file, quoting/arg building |
+| `Core/CommandLine.h/cpp` | Shared `--name value` parser used by `main.cpp` and the admin helper |
 
 Every change is expressed as a plain command (`reg add`, `netsh advfirewall`, `sc config`, `winrm quickconfig`, `net localgroup`) so the exact same path works for RDP, WinRM, firewall and account groups. `ProcessRunner` is the only place that knows how to launch them.
 
@@ -1027,21 +1032,63 @@ Firewall rule names are `RemoteInit-RDP-3389` / `RemoteInit-WinRM-5985` (`Remote
 - `RestoreBackup` re-applies the stored registry values (including port and security layer), the WinRM start type / running state, creates or removes the two firewall rules and restores their enabled state, and re-adds `rdpUsers` members to the RDP group. Version-1 backups without the newer keys stay usable: the live port is kept and missing keys are skipped.
 - Group restore is additive only — it never removes accounts that were added after the backup.
 - `ApplySelected` walks the checked + selectable items in list order and returns `RemoteInitResult{allOk, logs}`. Each step appends a human-readable line; partial failure keeps going and reports `allOk = false`.
-- Without elevation `ApplySelected` refuses and logs "需要以系統管理員身分執行才能套用設定"; callers check `isElevated` first.
+- Without elevation `ApplySelected` refuses and logs "需要以系統管理員身分執行才能套用設定". UI callers never see that: they use the `*Elevated` wrappers below.
+
+### Split elevation (`Services/AdminCommand`)
+
+The pet deliberately runs as a standard user — a fully elevated pet would hit UIPI
+(drag-and-drop from Explorer stops working with a lower-integrity source) and
+would raise a UAC prompt at every logon through autostart. Administrator work is
+therefore isolated into a **separate short-lived process**, not a restarted app:
+
+1. `RemoteInitService::ApplySelectedElevated` / `RestoreBackupElevated` filter the
+   selection (empty selection → `[SKIP]` with **no** UAC prompt). If the process
+   is already elevated they call `ApplySelected` / `RestoreBackup` directly.
+2. Otherwise `AdminCommand::ApplyRemoteInit` / `RestoreRemoteInit` build
+
+   ```
+   --admin remote-init-apply --ids "rdp,nla" --user "NAME" --result "<temp>"
+   --admin remote-init-restore --backup "<path>"            --result "<temp>"
+   ```
+
+   and launch **this same exe** with `ShellExecuteExW(lpVerb="runas",
+   nShow=SW_HIDE, SEE_MASK_NOCLOSEPROCESS)`.
+3. `wWinMain` checks `AdminCommand::IsInvocation(pCmdLine)` **before** `DBG_OPEN`,
+   `UpdateManager::BeginSession` (the single-instance gate) and any UI. The
+   helper initialises `Logger`, executes the one command, writes the result file
+   and exits — it never creates a window, so it cannot disturb the running pet.
+4. The parent waits up to 120 s for the helper, reads and deletes the temp file,
+   and parses it with `AdminCommand::ParseResultText` (`RESULT=OK` /
+   `RESULT=FAIL` followed by log lines, UTF-8). `ERROR_CANCELLED` from the UAC
+   prompt becomes `[FAIL] 已取消管理員授權`.
+
+Consequences:
+
+- The same binary is the helper, so version and deployment can never drift and
+  no `AdminHelper.exe` has to be shipped.
+- Simultaneous apply/restore requests just raise separate UAC prompts; nothing is
+  shared between processes except the result file.
+- Argument values are quoted with `QuoteArgument` (doubles backslashes before a
+  closing quote), so a user name or backup path containing spaces survives.
+- `ProcessRunner::RestartElevated` still exists but is no longer used by Remote
+  Init; the pet never restarts itself elevated.
 
 ### Entry points
 
-- **Tray**: `Remote Control Init...` (`ID_TRAY_REMOTE_INIT`, label via `Tr(L"Tray", ...)`) shows the probe summary, offers `RestartElevated` when not elevated, then backups + applies the default list.
+- **Tray**: `Remote Control Init...` (`ID_TRAY_REMOTE_INIT`, label via `Tr(L"Tray", ...)`) shows the probe summary, notes that applying will start the admin helper when the app is not elevated, then backups + applies the default list through `ApplySelectedElevated`.
 - **Network info dialog**: two tabs. The first (`InitNetworkTab`) lists the real adapter configuration (MAC / status / speed / MTU / IPv4 + mask / IPv6 / gateway / DNS / WINS / DHCP + lease) from `GetAdaptersAddresses` + `GetAdaptersInfo`, one copy button per row. The second (`InitRemoteTab`) shows a read-only multi-line `EDIT` with the full live RDP / WinRM / firewall / group state (selectable for copy), one checkbox per item, plus 重新檢查 / 備份目前設定 / 從備份還原 / 套用所選項目.
 - **Settings dialog**: `Remote Init` tab at index `1 + modules.size()` (`__remoteinit__<id>` control keys map back to item ids). Each row is `label 【current state】 - desc`.
 
 ### Tests
 
-`Debug/Services/RemoteInitTest.cpp` (53 assertions) links `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp` and covers the environment probe, default checkbox list, backup JSON round-trip, and the elevation guard. It must not pull in `Console`/`DBG`, so the test EXE stays headless.
+`Debug/Services/RemoteInitTest.cpp` (53 assertions) links `RemoteInitService.cpp` + `AdminCommand.cpp` + `CommandLine.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp` and covers the environment probe, default checkbox list, backup JSON round-trip, and the no-selection guard. It must not pull in `Console`/`DBG`, so the test EXE stays headless.
+
+`Debug/Services/AdminCommandTest.cpp` (47 assertions) covers the half of the helper that is testable without a UAC prompt: quoting, argument building, `RESULT=` parsing, the UTF-8 result-file round trip, `IsInvocation`, and the shared command-line parser. The elevated round trip itself is verified by hand.
 
 ### Gotchas
 
-- Every apply/restore operation needs an elevated process; a `DEBUG_CONSOLE` build started without UAC silently reports failures instead of elevating itself.
+- Every apply/restore operation needs administrator rights, but only the helper copy is elevated. A `DEBUG_CONSOLE` build started without UAC still works: the parent stays unelevated and asks for consent per operation.
+- `--admin` **must** be dispatched ahead of `UpdateManager::BeginSession`. Otherwise the helper would hit the single-instance gate of the running pet and exit without doing anything.
 - `RemoteInitService` writes only under `Log/`, which is gitignored — do not move backups to `Config/` (that would make them user-visible state accidentally committed on a fresh clone).
 - Re-running the tray action always creates a new backup file; there is no pruning. Clean `Log/RemoteInit/` manually if it grows.
 - `netsh` output is localised, so rule existence is judged by `exitCode`/`Ok()`, never by matching English text. State reads go through `INetFwPolicy2`; only writes still use `netsh`.
