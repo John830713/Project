@@ -17,6 +17,7 @@ Project-wide shared infrastructure. All upper layers depend on this.
 | `DropTypes.h` | `DropContext` / `DropActionDefinition` shared types |
 | `InputManager.h/cpp` | Centralized input dispatch |
 | `Logger.h/cpp` | Categorized logs, per-module log writing |
+| `CommandLine.h/cpp` | Minimal `--name [value]` parser shared by `main.cpp` and the `--admin` helper |
 | `ModuleManager.h/cpp` | Module registration, lifecycle, drop/context-menu dispatch |
 | `UpdateManager.h/cpp` | Single-instance guard + in-place rename-swap executable update (see spec §10) |
 | `DebugConsole.h/cpp` | Compile-time debug console (`-DDEBUG_CONSOLE=1`) |

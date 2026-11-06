@@ -65,8 +65,10 @@ struct RemoteInitResult {
 //
 // Every change is applied through plain commands (reg / netsh / sc / winrm /
 // net) so the same code path works for cmd, PowerShell and registry tweaks.
-// All apply/restore operations require an elevated process; the caller checks
-// RemoteInitStatus::isElevated first and offers ProcessRunner::RestartElevated.
+// Apply/restore need administrator rights, but the app itself deliberately runs
+// as a standard user (an elevated pet would hit UIPI and break Explorer
+// drag-and-drop). The *Elevated variants therefore hand the work to
+// AdminCommand, which launches one elevated copy of this exe and reports back.
 class RemoteInitService {
 public:
     static RemoteInitService* Get();
@@ -87,6 +89,15 @@ public:
     // Applies every checked + selectable item, in list order.
     RemoteInitResult ApplySelected(const std::vector<RemoteInitItem>& items,
                                    const std::wstring& userName) const;
+
+    // Same as ApplySelected, but when this process is not elevated it runs the
+    // command through AdminCommand (a separate elevated copy of the exe).
+    // The normal UI keeps running as a standard user.
+    RemoteInitResult ApplySelectedElevated(const std::vector<RemoteInitItem>& items,
+                                           const std::wstring& userName) const;
+
+    // Elevated variant of RestoreBackup with the same split-elevation rule.
+    bool RestoreBackupElevated(const std::wstring& path) const;
 
 public:
     // Firewall rule names created by this service (also used by restore).

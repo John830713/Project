@@ -8,7 +8,6 @@
 #include "../Core/Logger.h"
 #include "../Services/TranslationService.h"
 #include "../Services/RemoteInitService.h"
-#include "../Services/ProcessRunner.h"
 
 #include <windowsx.h>
 #include <algorithm>
@@ -307,7 +306,8 @@ void TrayHost::OnCommand(UINT cmd) {
             return std::wstring(enabled ? L"已建立，已啟用" : L"已建立，已停用");
         };
         std::wstring info = L"遠端控制初始化（RDP / WinRM）\r\n\r\n";
-        info += L"管理員權限: " + std::wstring(st.isElevated ? L"是" : L"否") + L"\r\n";
+        info += L"管理員權限: " +
+                std::wstring(st.isElevated ? L"是" : L"否（套用時自動提升）") + L"\r\n";
         info += L"電腦名稱: " + st.computerName + L"\r\n";
         info += L"產品: " + st.productName;
         if (!st.productVersion.empty()) info += L" " + st.productVersion;
@@ -331,11 +331,7 @@ void TrayHost::OnCommand(UINT cmd) {
         info += L"WinRM 防火牆規則: " +
                 ruleState(st.winrmFirewallRule, st.winrmFirewallEnabled) + L"\r\n\r\n";
         if (!st.isElevated) {
-            if (MessageBoxW(m_hwnd, (info + L"目前非系統管理員，建議以系統管理員身分重新啟動程式。\r\n是否以管理員身分重新啟動？").c_str(), L"Remote Init", MB_YESNO | MB_ICONWARNING) == IDYES) {
-                ProcessRunner::RestartElevated(L"");
-                PostQuitMessage(0);
-            }
-            return;
+            info += L"（套用時會另外啟動管理員指令，主程式維持一般權限）\r\n";
         }
         if (MessageBoxW(m_hwnd, (info + L"將備份目前設定並套用建議項目：\r\n- 啟用 RDP（若非 Home）\r\n- 啟用 NLA\r\n- 開啟 RDP 防火牆 " + std::to_wstring(st.rdpPort) + L"\r\n- 啟用 WinRM（若未執行）\r\n- 開啟 WinRM 防火牆 5985\r\n\r\n「允許空白密碼網路登入」預設不勾選，僅建議用於內網測試。\r\n是否繼續？").c_str(), L"Remote Init", MB_YESNO | MB_ICONQUESTION) == IDYES) {
             std::wstring backup = RemoteInitService::Get()->CreateBackup(st);
@@ -344,7 +340,7 @@ void TrayHost::OnCommand(UINT cmd) {
             wchar_t userName[256] = {};
             DWORD sz = 256;
             GetUserNameW(userName, &sz);
-            auto res = RemoteInitService::Get()->ApplySelected(items, userName);
+            auto res = RemoteInitService::Get()->ApplySelectedElevated(items, userName);
             std::wstring log = L"執行結果：\r\n\r\n";
             for (auto& l : res.logs) log += l + L"\r\n";
             if (res.allOk) log += L"\r\n全部項目執行完成。";

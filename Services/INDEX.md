@@ -13,7 +13,8 @@ Reusable technical services that modules can call without duplicating common log
 | `NetworkService.h/cpp` | Network utility functions |
 | `FileTransferService.h/cpp` | File transfer state management (used by RemoteControl at header level) |
 | `ProcessRunner.h/cpp` | Hidden `cmd.exe /c` execution with captured output, elevation check, `runas` relaunch, product/home-edition probe |
-| `RemoteInitService.h/cpp` | Remote control init (RDP / WinRM): state probe, checkbox list, JSON backup/restore, apply via reg/netsh/sc/winrm/net |
+| `RemoteInitService.h/cpp` | Remote control init (RDP / WinRM): state probe, checkbox list, JSON backup/restore, apply via reg/netsh/sc/winrm/net; `*Elevated` wrappers delegate to `AdminCommand` |
+| `AdminCommand.h/cpp` | Split elevation: `--admin <op> ... --result <file>` helper mode (UAC launch of a second copy of the same exe), command dispatch, result-file format |
 | `PetDiscoveryService.h/cpp` | LAN pet presence: UDP broadcast of the computer name on port 45789, TTL peer table, `GetPeers()` snapshot |
 
 ## Translation System Detail

@@ -4,11 +4,13 @@
 
 #include "HostApp.h"
 #include "UI/ModuleLauncherWindow.h"
+#include "Core/CommandLine.h"
 #include "Core/ConfigManager.h"
 #include "Core/Logger.h"
 #include "Core/LoaderConfig.h"
 #include "Core/DebugConsole.h"
 #include "Core/UpdateManager.h"
+#include "Services/AdminCommand.h"
 #include "Services/TranslationService.h"
 #include "Pet/PetConfig.h"
 
@@ -156,46 +158,6 @@ void TerminateHandler() {
     std::abort();
 }
 
-//------------------------------------------------------------------------------
-// Command line helpers
-//
-// wWinMain receives the tail of the command line, not an argv vector, and the
-// only flags we support are simple "--name value" pairs, so a tiny parser keeps
-// this dependency-free. BuildUI.py launches flavours with
-//   Project.exe --flavor <name> [--carrier pet|tray|window]
-//------------------------------------------------------------------------------
-
-std::wstring GetArgValue(const wchar_t* cmdLine, const wchar_t* flag) {
-    if (!cmdLine || !flag) {
-        return {};
-    }
-    const size_t flagLen = wcslen(flag);
-    const wchar_t* p = cmdLine;
-    while ((p = wcsstr(p, flag)) != nullptr) {
-        // Only accept the flag when it starts a token, so "foo--carrier"
-        // inside another value cannot match.
-        const bool atTokenStart = (p == cmdLine) || (p[-1] == L' ' || p[-1] == L'\t');
-        const wchar_t* after = p + flagLen;
-        if (atTokenStart && (*after == L' ' || *after == L'\t' || *after == L'\0')) {
-            while (*after == L' ' || *after == L'\t') {
-                ++after;
-            }
-            if (*after == L'"') {
-                ++after;
-                const wchar_t* end = wcschr(after, L'"');
-                return end ? std::wstring(after, end) : std::wstring(after);
-            }
-            const wchar_t* end = after;
-            while (*end && *end != L' ' && *end != L'\t') {
-                ++end;
-            }
-            return std::wstring(after, end);
-        }
-        p += flagLen;
-    }
-    return {};
-}
-
 } // namespace
 
 //==============================================================================
@@ -208,6 +170,15 @@ std::wstring GetArgValue(const wchar_t* cmdLine, const wchar_t* flag) {
 //==============================================================================
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow) {
+    // Admin helper mode must run before DBG_OPEN, the single-instance gate and
+    // any UI: the elevated copy only executes one command and exits. That is
+    // what lets the normal pet keep running as a standard user.
+    if (AdminCommand::IsInvocation(pCmdLine)) {
+        SetUnhandledExceptionFilter(CrashFilter);
+        std::set_terminate(TerminateHandler);
+        return AdminCommand::Run(hInstance, pCmdLine);
+    }
+
     DBG_OPEN();
     DBG(L"Application started");
 
@@ -223,8 +194,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR pCmdLine, int nCmdShow
     // BuildUI.py flavours: --flavor selects Config_Flavor_<name>.json and
     // --carrier overrides the carrier stored in it (handy when testing the
     // same module selection in a different shell).
-    const std::wstring flavor = GetArgValue(pCmdLine, L"--flavor");
-    const std::wstring carrier = GetArgValue(pCmdLine, L"--carrier");
+    const std::wstring flavor = CommandLine::GetValue(pCmdLine, L"--flavor");
+    const std::wstring carrier = CommandLine::GetValue(pCmdLine, L"--carrier");
 
     ConfigManager::Initialize(hInstance);
     Logger::Initialize(hInstance);

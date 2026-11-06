@@ -1,7 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include "NetworkInfoDialog.h"
-#include "../Services/ProcessRunner.h"
 #include "../Services/TranslationService.h"
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
@@ -668,7 +667,8 @@ void NetworkInfoDialog::InitRemoteTab(HWND hwnd) {
                                                  : m_remoteStatus.productName) +
              (version.empty() ? L"" : L" " + version));
         line(std::wstring(L"執行權限：") +
-             (m_remoteStatus.isElevated ? L"系統管理員" : L"一般使用者"));
+             (m_remoteStatus.isElevated ? L"系統管理員"
+                                        : L"一般使用者（套用時自動提升權限）"));
         line(L"網域/工作群組：" +
              (m_remoteStatus.domainOrWorkgroup.empty()
                   ? L"未知"
@@ -775,8 +775,8 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
             MessageBoxW(hwnd, L"尚未建立備份", L"還原", MB_OK | MB_ICONWARNING);
             return;
         }
-        if (MessageBoxW(hwnd, L"確定要從最近一次備份還原設定？", L"還原確認", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-            if (RemoteInitService::Get()->RestoreBackup(m_remoteBackupPath)) {
+        if (MessageBoxW(hwnd, L"確定要從最近一次備份還原設定？\r\n（還原需要系統管理員權限，會另外啟動管理員指令）", L"還原確認", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            if (RemoteInitService::Get()->RestoreBackupElevated(m_remoteBackupPath)) {
                 MessageBoxW(hwnd, L"還原完成", L"還原", MB_OK | MB_ICONINFORMATION);
             } else {
                 MessageBoxW(hwnd, L"還原失敗，詳見 Log。", L"還原", MB_OK | MB_ICONWARNING);
@@ -786,13 +786,8 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
         return;
     }
     if (id == ID_REMOTE_APPLY) {
-        if (!m_remoteStatus.isElevated) {
-            if (MessageBoxW(hwnd, L"目前不是以系統管理員身分執行。\r\n建議以系統管理員身分重新啟動程式後再執行。\r\n是否要以管理員身分重新啟動？", L"需要管理員權限", MB_YESNO | MB_ICONWARNING) == IDYES) {
-                ProcessRunner::RestartElevated(L"");
-                PostQuitMessage(0);
-            }
-            return;
-        }
+        // Read the checkboxes first; elevation happens inside the service and
+        // only for the admin-only steps, so the pet keeps running normally.
         for (size_t i = 0; i < m_remoteItems.size(); ++i) {
             for (auto h : m_remoteCtrls) {
                 if (!h || !IsWindow(h)) continue;
@@ -805,7 +800,7 @@ void NetworkInfoDialog::OnRemoteCommand(HWND hwnd, WPARAM wParam) {
         wchar_t userName[256] = {};
         DWORD sz = 256;
         GetUserNameW(userName, &sz);
-        auto res = RemoteInitService::Get()->ApplySelected(m_remoteItems, userName);
+        auto res = RemoteInitService::Get()->ApplySelectedElevated(m_remoteItems, userName);
         std::wstring log = L"執行結果：\r\n\r\n";
         for (auto& l : res.logs) log += l + L"\r\n";
         if (res.allOk) log += L"\r\n全部項目執行完成。";

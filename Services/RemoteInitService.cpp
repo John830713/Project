@@ -1,6 +1,7 @@
 #include "RemoteInitService.h"
 
 #include "../Core/Logger.h"
+#include "AdminCommand.h"
 #include "FileService.h"
 #include "ProcessRunner.h"
 
@@ -809,6 +810,29 @@ RemoteInitResult RemoteInitService::ApplySelected(
     return result;
 }
 
+RemoteInitResult RemoteInitService::ApplySelectedElevated(
+    const std::vector<RemoteInitItem>& items, const std::wstring& userName) const {
+    std::vector<std::wstring> ids;
+    for (const auto& item : items) {
+        if (item.checked && item.selectable) ids.push_back(item.id);
+    }
+
+    // Nothing selected: no reason to raise a UAC prompt.
+    if (ids.empty()) {
+        RemoteInitResult result;
+        result.logs.push_back(L"[SKIP] 沒有勾選任何項目");
+        return result;
+    }
+
+    if (ProcessRunner::IsElevated()) return ApplySelected(items, userName);
+
+    AdminCommand::Result admin = AdminCommand::ApplyRemoteInit(ids, userName);
+    RemoteInitResult result;
+    result.allOk = admin.allOk;
+    result.logs = admin.lines;
+    return result;
+}
+
 std::wstring RemoteInitService::CreateBackup(const RemoteInitStatus& status) const {
     SYSTEMTIME now = {};
     GetLocalTime(&now);
@@ -868,6 +892,17 @@ std::wstring RemoteInitService::CreateBackup(const RemoteInitStatus& status) con
 
     Logger::Write(L"RemoteInit", L"backup written: " + file.wstring());
     return file.wstring();
+}
+
+bool RemoteInitService::RestoreBackupElevated(const std::wstring& path) const {
+    if (path.empty()) return false;
+    if (ProcessRunner::IsElevated()) return RestoreBackup(path);
+
+    AdminCommand::Result admin = AdminCommand::RestoreRemoteInit(path);
+    for (const auto& line : admin.lines) {
+        Logger::Write(L"RemoteInit", line);
+    }
+    return admin.allOk;
 }
 
 bool RemoteInitService::RestoreBackup(const std::wstring& path) const {

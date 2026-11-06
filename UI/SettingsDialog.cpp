@@ -5,7 +5,6 @@
 #include "../Core/Logger.h"
 #include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
-#include "../Services/ProcessRunner.h"
 
 #include <shobjidl.h>
 #include <windowsx.h>
@@ -366,8 +365,8 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                     MessageBoxW(hwnd, L"尚未建立備份", L"還原", MB_OK | MB_ICONWARNING);
                     return 0;
                 }
-                if (MessageBoxW(hwnd, L"確定要從最近一次備份還原設定？", L"還原確認", MB_YESNO | MB_ICONQUESTION) == IDYES) {
-                    if (RemoteInitService::Get()->RestoreBackup(m_remoteInitBackupPath)) {
+                if (MessageBoxW(hwnd, L"確定要從最近一次備份還原設定？\r\n（還原需要系統管理員權限，會另外啟動管理員指令）", L"還原確認", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+                    if (RemoteInitService::Get()->RestoreBackupElevated(m_remoteInitBackupPath)) {
                         MessageBoxW(hwnd, L"還原完成", L"還原", MB_OK | MB_ICONINFORMATION);
                     } else {
                         MessageBoxW(hwnd, L"還原失敗（簡化實作僅支援部分項目）", L"還原", MB_OK | MB_ICONWARNING);
@@ -380,14 +379,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
         }
         if (id == ID_REMOTE_INIT_APPLY) {
             if (m_currentTab == 1 + (int)m_modules.size()) {
-                if (!m_remoteInitStatus.isElevated) {
-                    if (MessageBoxW(hwnd, L"目前不是以系統管理員身分執行。\r\n建議以系統管理員身分重新啟動程式後再執行。\r\n是否要以管理員身分重新啟動？", L"需要管理員權限", MB_YESNO | MB_ICONWARNING) == IDYES) {
-                        ProcessRunner::RestartElevated(L"");
-                        PostQuitMessage(0);
-                    }
-                    return 0;
-                }
-                // sync checkbox states
+                // Sync checkbox states first: they are the user's real selection.
                 for (size_t i = 0; i < m_fieldControls.size(); ++i) {
                     HWND hCtrl = m_fieldControls[i];
                     if (!IsWindow(hCtrl)) continue;
@@ -406,7 +398,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 wchar_t userName[256] = {};
                 DWORD sz = 256;
                 GetUserNameW(userName, &sz);
-                auto res = RemoteInitService::Get()->ApplySelected(m_remoteInitItems, userName);
+                auto res = RemoteInitService::Get()->ApplySelectedElevated(m_remoteInitItems, userName);
                 std::wstring log = L"執行結果：\r\n\r\n";
                 for (auto& l : res.logs) log += l + L"\r\n";
                 if (res.allOk) log += L"\r\n全部項目執行完成。";
@@ -656,7 +648,7 @@ void SettingsDialog::PopulateFields(HWND hwnd) {
         {
             std::wstring info = L"系統：";
             if (m_remoteInitStatus.isElevated) info += L"已管理員權限  ";
-            else info += L"非管理員權限  ";
+            else info += L"一般權限（套用時自動提升）  ";
             if (m_remoteInitStatus.isWindowsHome) info += L"Windows Home  ";
             info += L"產品：" + m_remoteInitStatus.productName + L"  ";
             info += L"網路：" + m_remoteInitStatus.networkCategory;
