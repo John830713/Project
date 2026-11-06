@@ -2431,12 +2431,18 @@ HWND MainWindow::CreateSubPopup(HWND parent, POINT pt, const std::vector<PopupIt
             h += POPUP_SEP_H;
         else {
             h += POPUP_ITEM_H;
-            int tw = item.text.size() * 8 + 16;
+            // CJK glyphs are roughly twice as wide as the menu font's ASCII
+            // advance; a flat *8 clipped translated module labels.
+            int tw = 16;
+            for (wchar_t c : item.text)
+                tw += (c < 0x80) ? 8 : 16;
             if (tw > maxLabel) maxLabel = tw;
         }
     }
 
     int w = (maxLabel < 120) ? 160 : maxLabel + 20;
+    if (w > GetSystemMetrics(SM_CXSCREEN) - 8)
+        w = GetSystemMetrics(SM_CXSCREEN) - 8;
     outHeight = h;
 
     if (pt.x + w > GetSystemMetrics(SM_CXSCREEN))
