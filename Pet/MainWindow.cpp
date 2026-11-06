@@ -873,9 +873,10 @@ LRESULT MainWindow::HandleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                 return 0;
             }
             case 1: {
-                // Click "Pet" item in context menu (i=0, y range: 4..4+26)
+                // Click "Pet" item in context menu (first item sits below the
+                // 24px computer-name header, so y = 4 + 24 + 6).
                 if (m_hContextPopup) {
-                    LPARAM lp = MAKELPARAM(6, 6);
+                    LPARAM lp = MAKELPARAM(6, 34);
                     PostMessageW(m_hContextPopup, WM_LBUTTONDOWN, 0, lp);
                     DBG(L"[AUTOTEST] sent LM to ctxpop for Pet item");
                 }
@@ -1176,6 +1177,22 @@ static constexpr int POPUP_SEP_H = 6;
 static constexpr int POPUP_PAD = 4;
 static constexpr int POPUP_W = 220;
 static constexpr int TRACKBAR_H = 22;
+// Non-interactive header above the main popup items.
+static constexpr int POPUP_HEADER_H = 24;
+
+// Right-click menus from different machines can be on screen at the same time
+// (local + remote sessions), so every popup names the machine it belongs to.
+static const std::wstring& PopupComputerName() {
+    static const std::wstring text = [] {
+        std::wstring label =
+            TranslationService::Get()->Tr(L"Pet", L"Computer name:");
+        wchar_t name[MAX_COMPUTERNAME_LENGTH + 1] = {};
+        DWORD size = MAX_COMPUTERNAME_LENGTH + 1;
+        if (!GetComputerNameW(name, &size) || size == 0) return label;
+        return label + L" " + std::wstring(name, size);
+    }();
+    return text;
+}
 
 enum PopupHit { HIT_NONE = -1 };
 enum PopupItemKind { PIK_ACTION, PIK_SEP, PIK_SUBMENU, PIK_SLIDER };
@@ -1320,7 +1337,7 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
         TRACKMOUSEEVENT tme = { sizeof(tme), TME_LEAVE, hwnd, 0 };
         TrackMouseEvent(&tme);
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        int y = POPUP_PAD;
+        int y = POPUP_PAD + POPUP_HEADER_H;
         int newHover = -1;
         for (int i = 0; i < POPUP_N; i++) {
             int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
@@ -1359,7 +1376,7 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
         int cw = POPUP_W - POPUP_PAD * 2;
         RECT ir = { POPUP_PAD, 0, POPUP_PAD + cw, 0 };
         {
-            int y = POPUP_PAD;
+            int y = POPUP_PAD + POPUP_HEADER_H;
             for (int i = 0; i <= idx; i++) {
                 int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
                 if (i == idx) { ir.top = y; ir.bottom = y + ih; break; }
@@ -1425,7 +1442,18 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
 
         int x = POPUP_PAD;
         int w = rc.right - POPUP_PAD * 2;
-        int y = POPUP_PAD;
+
+        int headerTop = POPUP_PAD;
+        int headerBottom = headerTop + POPUP_HEADER_H;
+        RECT hr = { x, headerTop, x + w, headerBottom };
+        SetTextColor(dc, GetSysColor(COLOR_GRAYTEXT));
+        DrawTextW(dc, PopupComputerName().c_str(), -1, &hr,
+                  DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+        SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
+        RECT hline = { x, headerBottom - 1, x + w, headerBottom };
+        FillRect(dc, &hline, GetSysColorBrush(COLOR_3DSHADOW));
+
+        int y = headerBottom;
         int hover = data ? data->hoveredItem : -1;
 
         auto Tr = [](const wchar_t* sec, const wchar_t* key) {
@@ -1478,7 +1506,7 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
 
     case WM_LBUTTONDOWN: {
         POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-        int y = POPUP_PAD;
+        int y = POPUP_PAD + POPUP_HEADER_H;
         int cw = POPUP_W - POPUP_PAD * 2;
         for (int i = 0; i < POPUP_N; i++) {
             int ih = (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
@@ -2276,7 +2304,7 @@ void MainWindow::ShowContextPopup(HWND hwnd, POINT pt) {
     wc.hbrBackground = GetSysColorBrush(COLOR_MENU);
     RegisterClassW(&wc);
 
-    int totalH = POPUP_PAD * 2;
+    int totalH = POPUP_PAD * 2 + POPUP_HEADER_H;
     for (int i = 0; i < POPUP_N; i++)
         totalH += (g_popupKind[i] == PIK_SEP) ? POPUP_SEP_H : POPUP_ITEM_H;
     int x = pt.x, y = pt.y - totalH - 8;

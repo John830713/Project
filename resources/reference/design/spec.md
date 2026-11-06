@@ -98,7 +98,8 @@ The right-click menu is **entirely custom-drawn** — no `HMENU` / `TrackPopupMe
 OnContextMessage (WM_CONTEXTMENU)
   └→ ShowContextPopup()
        └→ CreateWindow(CLASS_CONTEXT_POPUP, ContextPopupProc)
-            ├── WM_PAINT:  iterate g_popupKind[], draw each item
+            ├── WM_PAINT:  draw the 電腦名稱：<name> header (POPUP_HEADER_H),
+            │              then iterate g_popupKind[], draw each item
             │              PIK_ACTION → label from g_popupCmd[] switch
             │              PIK_SUBMENU → "▸" arrow
             │              PIK_SEP → horizontal line
@@ -434,7 +435,7 @@ When dragged within threshold of screen edge → shrink to 24×24 indicator dot 
 Entirely custom-drawn (no `HMENU`/`TrackPopupMenu` for main menu):
 
 ```
-Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
+Root (ContextPopupProc): [電腦名稱：<name> header, Pet▸, Function▸, ---, Settings, About, ---, Exit]
   ├── Pet▸ (PetPopupProc): [Always on Top, Move▸, ---, Opacity▸, Scale▸]
   │     ├── Move▸ (SubPopupProc): [Still, Move▸, Step▸, Speed▸, Shuttle]
   │     │     ├── Step▸ (SliderSubPopupProc): trackbar + value
@@ -445,6 +446,7 @@ Root (ContextPopupProc): [Pet▸, Function▸, ---, Settings, About, ---, Exit]
 ```
 
 - Submenus open on **300ms hover timer** (not click)
+- The root popup starts with a non-interactive `電腦名稱：<COMPUTERNAME>` header (`PopupComputerName()`, `POPUP_HEADER_H`) so local and remote pets are distinguishable; item hit-testing starts below it, and the string is translated via `Tr(L"Pet", L"Computer name:")`.
 - Popup tree dismisses via `WM_ACTIVATE(WA_INACTIVE)` — sibling check prevents cascade-close
 - `CloseContextPopup()` cascades through all tracked HWNDs
 - Sliders: `MA_NOACTIVATE` subclass on trackbar to prevent focus stealing
