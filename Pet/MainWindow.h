@@ -81,6 +81,8 @@ private:
         int id;
         std::wstring text;
         std::vector<PopupItem> subItems;
+        // Informational row: drawn gray and ignored by hover/click handling.
+        bool disabled = false;
     };
 
     struct SubPopupData {
@@ -102,6 +104,9 @@ private:
     void CloseStepPopup();
     void CloseSpeedPopup();
     HWND CreateSubPopup(HWND parent, POINT pt, const std::vector<PopupItem>& items, int baseId, int& outHeight, HWND* storePtr = nullptr);
+
+    // "Other pets" submenu: live list from PetDiscoveryService (name + IPv4).
+    void OpenPeersSubPopup(HWND parent, POINT pt);
 
     static LRESULT CALLBACK ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static LRESULT CALLBACK PetPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

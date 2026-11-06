@@ -123,10 +123,13 @@ static PopupItemKind g_popupKind[] = {
     PIK_ACTION,   // 3: Settings...
     PIK_ACTION,   // 4: About...
     PIK_SEP,      // 5:
-    PIK_ACTION,   // 6: Exit
+    PIK_SUBMENU,  // 6: Other pets ▸  (LAN discovery, PEERS_INDEX)
+    PIK_ACTION,   // 7: Exit
 };
-static int g_popupCmd[] = { 0, 0, 0, FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_EXIT };
+static int g_popupCmd[] = { 0, 0, 0, FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_PEERS, FILE_ID_EXIT };
 ```
+
+The MainWindow auto-test clicks item 0 at `y = 34` because the 24 px computer-name header sits above the items.
 
 Item constants: `FILE_ID_xxx` (static constexpr) match `ID_xxx` (enum in `MainWindow.h`).
 
@@ -135,6 +138,7 @@ Item constants: `FILE_ID_xxx` (static constexpr) match `ID_xxx` (enum in `MainWi
 | `FILE_ID_EXIT` | 100 | `PostQuitMessage(0)` |
 | `FILE_ID_SETTINGS` | 101 | `OpenSettings(hwnd)` |
 | `FILE_ID_TOPMOST` | 102 | `ToggleTopmost()` |
+| `FILE_ID_PEERS` | 109 | `OpenPeersSubPopup(hwnd, pt)` |
 | `FILE_ID_ABOUT` | 9999 | `ShowAboutDialog(hwnd)` |
 
 ### Dynamic submenu (Function ▸)
@@ -183,6 +187,8 @@ File IDs: `ID_PET_TOPMOST=103`, `ID_PET_EDIT_ORDER=108`
 ### SubPopupProc
 
 Reusable popup window for module submenus. Uses `std::vector<PopupItem>` for layout + dispatch. Same WM_PAINT/WM_MOUSEMOVE/WM_LBUTTONDOWN pattern.
+
+`PopupItem::disabled` marks an informational row (peer list entries, "no peers" placeholder): it is drawn with `COLOR_GRAYTEXT`, never starts the hover timer, and clicks are ignored.
 
 ---
 
@@ -435,7 +441,7 @@ When dragged within threshold of screen edge → shrink to 24×24 indicator dot 
 Entirely custom-drawn (no `HMENU`/`TrackPopupMenu` for main menu):
 
 ```
-Root (ContextPopupProc): [電腦名稱：<name> header, Pet▸, Function▸, ---, Settings, About, ---, Exit]
+Root (ContextPopupProc): [電腦名稱：<name> header, Pet▸, Function▸, ---, Settings, About, ---, Other pets (N)▸, Exit]
   ├── Pet▸ (PetPopupProc): [Always on Top, Move▸, ---, Opacity▸, Scale▸]
   │     ├── Move▸ (SubPopupProc): [Still, Move▸, Step▸, Speed▸, Shuttle]
   │     │     ├── Step▸ (SliderSubPopupProc): trackbar + value
@@ -443,6 +449,7 @@ Root (ContextPopupProc): [電腦名稱：<name> header, Pet▸, Function▸, ---
   │     ├── Opacity▸ (SliderSubPopupProc): trackbar + live preview
   │     └── Scale▸ (SliderSubPopupProc): trackbar + live preview
   └── Function▸ (SubPopupProc): module-provided items from ModuleManager::GetMenuGroups()
+  └── Other pets (N)▸ (SubPopupProc): peer name + IPv4 from PetDiscoveryService::GetPeers()
 ```
 
 - Submenus open on **300ms hover timer** (not click)
@@ -586,7 +593,7 @@ The host pointer lets tray commands reach `HostApp` state
 
 ### Test infrastructure
 
-- **10 test targets** built via `make test` (not included in `make all`)
+- **11 test targets** built via `make test` (not included in `make all`)
 - Each test is a standalone `.exe` with minimal macro-based framework (`ASSERT_EQ`, `ASSERT_TRUE`, etc.)
 - Tests use `-DENABLE_DEBUG_STATE=1` and `-O0 -g` (no `DEBUG_CONSOLE`)
 - Return 0 = pass, 1 = fail
@@ -604,6 +611,7 @@ The host pointer lets tray commands reach `HostApp` state
 | UpdateManagerTest | `Debug/Core/UpdateManagerTest.cpp` | Version ordering, equal-version rebuild compare, rename-swap + rollback, stale-backup cleanup (links real `Core/UpdateManager.cpp`) |
 | DiagnosticsTest | `Debug/RemoteControl/DiagnosticsTest.cpp` | dbgReq/dbgResp/exeSwap/exeResult pack+unpack, seq survives, unknown-type passthrough, snapshot formatting (links real `Services/NetworkService.cpp`) |
 | RemoteInitTest | `Debug/Services/RemoteInitTest.cpp` | Environment probe (RDP port/security layer, join info, WinRM listener, firewall profiles), default checkbox list, backup JSON round-trip, elevation guard (links real `RemoteInitService.cpp` + `ProcessRunner.cpp` + `FileService.cpp` + `Logger.cpp`) |
+| PetDiscoveryTest | `Debug/Services/PetDiscoveryTest.cpp` | Beacon codec: ASCII / CJK round-trip, bad magic, short packet, invalid UTF-8, control-char sanitization, empty name, no peers before `Start()` (links real `PetDiscoveryService.cpp` + `NetworkService.cpp`) |
 | GuiTest | `Debug/UI/GuiTest.cpp` | No Makefile target — manual compile. E2E: find pet window, open Settings, manage actions, verify persistence. |
 
 ### MainWindow auto-test
@@ -1038,3 +1046,66 @@ Firewall rule names are `RemoteInit-RDP-3389` / `RemoteInit-WinRM-5985` (`Remote
 - Re-running the tray action always creates a new backup file; there is no pruning. Clean `Log/RemoteInit/` manually if it grows.
 - `netsh` output is localised, so rule existence is judged by `exitCode`/`Ok()`, never by matching English text. State reads go through `INetFwPolicy2`; only writes still use `netsh`.
 - `CLSID_NetFwPolicy2` / `IID_INetFwPolicy2` are not in MinGW's `libuuid.a`; they are defined in `RemoteInitService.cpp`. Linking needs `-lnetapi32` (`NetLocalGroupGetMembers`, `NetGetJoinInformation`) and `-loleaut32` (`SysAllocString`).
+
+---
+
+## 16. LAN Pet Discovery (`Services/PetDiscoveryService`)
+
+### Purpose
+
+Pets on the same LAN identify each other so the right-click menu can answer
+"which machines currently have a pet online". There is **no authentication and
+no handshake** — the payload is only the computer name, so a missed datagram is
+recovered by the next beacon interval.
+
+### Protocol
+
+- UDP, fixed port `PetDiscoveryService::kPort = 45789`, `SO_BROADCAST`, sent to
+  `INADDR_BROADCAST`.
+- Payload: 8-byte magic `PETDISC1` followed by the UTF-8 computer name (no
+  terminator, max 255 bytes).
+- Beacon every `kBeaconIntervalMs = 3000`; a peer is dropped after
+  `kPeerTtlMs = 10000` (three missed beacons).
+- The receiver is non-blocking (`ioctlsocket(FIONBIO)`) and drains with a
+  100 ms `WaitForSingleObject` loop. `SO_REUSEADDR` lets several pets bind the
+  same port (including Tray/Window carriers and a debug rebuild).
+- Own beacons are ignored by comparing the lower-cased computer name; the peer
+  table is keyed the same way, so a renamed/re-addressed host updates in place.
+- Incoming names are untrusted: control characters are replaced with `?`
+  before the string reaches `DrawTextW` or the log.
+
+### Lifecycle
+
+`PetDiscoveryService::Get()->Start()` runs in `MainWindow`'s constructor and
+`Stop()` in its destructor. `MainWindow` is created by all three carriers
+(Pet/Tray/Window), so discovery participates everywhere. Both calls are
+idempotent, which keeps the tray "Reset Pet Window" rebuild safe.
+
+### UI
+
+Root context menu item 6 (`PEERS_INDEX`, `FILE_ID_PEERS`) is
+`Other pets (N) ▸`; N is the live peer count, refreshed on every paint. The
+submenu is built by `MainWindow::OpenPeersSubPopup()` from
+`GetPeers()` (TTL-filtered, self excluded, sorted by name) as
+`<computerName>  (<IPv4>)` rows. Rows are `PopupItem::disabled` (gray,
+non-clickable) because they are informational. With no peers the submenu shows
+`No other pets found`. Translations: `Other pets`, `No other pets found` in
+`Pet/lang/zh-TW.ini`.
+
+### Tests
+
+`Debug/Services/PetDiscoveryTest.cpp` covers the offline codec only (ASCII/CJK
+round-trip, bad magic, short/empty packet, invalid UTF-8, control-char
+sanitization, no peers before `Start()`), linking the real service and
+`NetworkService.cpp` with `-lws2_32`. The live UDP path is verified by hand on
+two machines.
+
+### Gotchas
+
+- Windows Firewall blocks inbound UDP on the Public profile by default. For
+  cross-machine discovery the app needs an inbound allow rule for UDP 45789 on
+  the Private network; the code does not create one (that would need elevation).
+- `MainWindow.cpp` must include `<winsock2.h>` before `MainWindow.h`; otherwise
+  `windows.h` pulls the old WinSock 1.1 headers and the types collide.
+- The discovery worker never touches a window or the logger; UI reads only
+  `GetPeers()` snapshots under the service mutex.

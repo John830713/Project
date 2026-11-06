@@ -1,3 +1,4 @@
+#include <winsock2.h>
 #include "MainWindow.h"
 #include "PetConfig.h"
 #include "../UI/SettingsDialog.h"
@@ -9,6 +10,7 @@
 #include "../Core/InputManager.h"
 #include "../Core/DebugConsole.h"
 #include "../Services/TranslationService.h"
+#include "../Services/PetDiscoveryService.h"
 #include "../Core/ILedIndicator.h"
 #include <windowsx.h>
 #include <shellapi.h>
@@ -214,9 +216,11 @@ MainWindow::MainWindow()
       m_edgeSnapped(false), m_snapEdge(SNAP_NONE), m_snapIndicator(nullptr) {
     Gdiplus::GdiplusStartupInput gsi;
     Gdiplus::GdiplusStartup(&m_gdiplusToken, &gsi, nullptr);
+    PetDiscoveryService::Get()->Start();
 }
 
 MainWindow::~MainWindow() {
+    PetDiscoveryService::Get()->Stop();
     delete m_petImage;
     delete m_originalImage;
     delete m_snapIndicator;
@@ -1208,6 +1212,7 @@ static constexpr int FILE_ID_MOVE_STEP = 105;
 static constexpr int FILE_ID_MOVE_SPEED = 106;
 static constexpr int FILE_ID_MOVE_SHUTTLE = 107;
 static constexpr int FILE_ID_EDIT_ORDER = 108;
+static constexpr int FILE_ID_PEERS = 109;
 
 //--- Pet submenu descriptors (Always on Top, Move ▸, ---, Opacity ▸, Scale ▸, ---, Edit Order) ---
 static PopupItemKind g_petKind[] = {
@@ -1233,13 +1238,15 @@ static PopupItemKind g_popupKind[] = {
     PIK_ACTION,   // 3:  Settings...
     PIK_ACTION,   // 4:  About...
     PIK_SEP,      // 5:
-    PIK_ACTION,   // 6:  Exit
+    PIK_SUBMENU,  // 6:  Other pets ▸ (LAN discovery)
+    PIK_ACTION,   // 7:  Exit
 };
 static constexpr int POPUP_N = sizeof(g_popupKind) / sizeof(g_popupKind[0]);
+static constexpr int PEERS_INDEX = 6;
 
 static int g_popupCmd[] = {
     0, 0, 0,
-    FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_EXIT
+    FILE_ID_SETTINGS, FILE_ID_ABOUT, 0, FILE_ID_PEERS, FILE_ID_EXIT
 };
 
 struct ContextSliderData {
@@ -1425,6 +1432,8 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
             }
             int h2;
             self->m_hSubPopup = self->CreateSubPopup(hwnd, scr, items, 0, h2);
+        } else if (idx == PEERS_INDEX) {
+            self->OpenPeersSubPopup(hwnd, scr);
         }
         return 0;
     }
@@ -1489,6 +1498,11 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
                 } else {
                     if (i == 0)      label = Tr(L"Pet", L"Pet");
                     else if (i == 1) label = Tr(L"Pet", L"Function");
+                    else if (i == PEERS_INDEX) {
+                        size_t peers = PetDiscoveryService::Get()->GetPeers().size();
+                        label = Tr(L"Pet", L"Other pets") + L" (" +
+                                std::to_wstring(peers) + L")";
+                    }
                     RECT arr = { x + w - 16, y, x + w, y + POPUP_ITEM_H };
                     DrawTextW(dc, L"\u25B8", -1, &arr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
                 }
@@ -1497,6 +1511,10 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
                 y += ih;
                 break;
             }
+
+            case PIK_SLIDER:
+                y += TRACKBAR_H + 2;
+                break;
             }
         }
         SelectObject(dc, oldF);
@@ -1560,6 +1578,8 @@ LRESULT CALLBACK MainWindow::ContextPopupProc(HWND hwnd, UINT msg, WPARAM wParam
                         }
                         int h2;
                         self->m_hSubPopup = self->CreateSubPopup(hwnd, scr, items, 0, h2);
+                    } else if (i == PEERS_INDEX) {
+                        self->OpenPeersSubPopup(hwnd, scr);
                     }
                 }
                 break;
@@ -2011,11 +2031,15 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
                 y += POPUP_SEP_H / 2;
             } else {
                 RECT ir = { x, y, x + w, y + POPUP_ITEM_H };
+                if (item.disabled)
+                    SetTextColor(dc, GetSysColor(COLOR_GRAYTEXT));
                 DrawTextW(dc, item.text.c_str(), -1, &ir, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
                 if (item.type == PopupItem::Submenu) {
                     RECT arr = { x + w - 16, y, x + w, y + POPUP_ITEM_H };
                     DrawTextW(dc, L"\u25B8", -1, &arr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
                 }
+                if (item.disabled)
+                    SetTextColor(dc, GetSysColor(COLOR_MENUTEXT));
                 y += POPUP_ITEM_H;
             }
         }
@@ -2035,7 +2059,8 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             const auto& item = (*container)[i];
             int ih = (item.type == PopupItem::Separator) ? POPUP_SEP_H : POPUP_ITEM_H;
             RECT ir = { x2, y2, x2 + w2, y2 + ih };
-            if (item.type == PopupItem::Submenu && pt.y >= ir.top && pt.y < ir.bottom) {
+            if (item.type == PopupItem::Submenu && !item.disabled &&
+                pt.y >= ir.top && pt.y < ir.bottom) {
                 hit = (int)i;
                 break;
             }
@@ -2117,6 +2142,7 @@ LRESULT CALLBACK MainWindow::SubPopupProc(HWND hwnd, UINT msg, WPARAM wParam, LP
             int ih = (item.type == PopupItem::Separator) ? POPUP_SEP_H : POPUP_ITEM_H;
             RECT ir = { x, y, x + w, y + ih };
             if (pt.y >= ir.top && pt.y < ir.bottom) {
+                if (item.disabled) return 0;
                 if (item.type == PopupItem::Action) {
                     if (self) {
                         HWND mainHwnd = self->m_hwnd;
@@ -2440,6 +2466,28 @@ HWND MainWindow::CreateSubPopup(HWND parent, POINT pt, const std::vector<PopupIt
         delete userData;
     }
     return hSub;
+}
+
+void MainWindow::OpenPeersSubPopup(HWND parent, POINT pt) {
+    auto Tr = [](const wchar_t* sec, const wchar_t* key) {
+        return TranslationService::Get()->Tr(sec, key);
+    };
+
+    std::vector<PopupItem> items;
+    auto peers = PetDiscoveryService::Get()->GetPeers();
+    if (peers.empty()) {
+        items.push_back({ PopupItem::Action, 0,
+                          Tr(L"Pet", L"No other pets found"), {}, true });
+    } else {
+        for (const auto& peer : peers) {
+            std::wstring label = peer.computerName;
+            if (!peer.address.empty()) label += L"  (" + peer.address + L")";
+            items.push_back({ PopupItem::Action, 0, label, {}, true });
+        }
+    }
+
+    int h = 0;
+    CreateSubPopup(parent, pt, items, 0, h);
 }
 
 void MainWindow::OnContextMenu(HWND hwnd, POINT pt) {

@@ -115,7 +115,7 @@ $(ALL_OBJS): $(FLAGS_STAMP)
 TEST_CXXFLAGS = -O0 -g -Wall -std=c++17 -DENABLE_DEBUG_STATE=1 -static-libgcc -static-libstdc++ -static
 TEST_LIBS = -luser32 -lkernel32
 
-TEST_TARGETS = Debug/AutoKey/AutoKeyTest.exe Debug/UI/TooltipTest.exe Debug/Core/DebugStateTest.exe Debug/Core/MenuOrderTest.exe Debug/Core/UpdateManagerTest.exe Debug/RemoteControl/ClipboardTest.exe Debug/RemoteControl/DisconnectTest.exe Debug/RemoteControl/DiagnosticsTest.exe Debug/WebAgent/WebAgentTest.exe Debug/Services/RemoteInitTest.exe
+TEST_TARGETS = Debug/AutoKey/AutoKeyTest.exe Debug/UI/TooltipTest.exe Debug/Core/DebugStateTest.exe Debug/Core/MenuOrderTest.exe Debug/Core/UpdateManagerTest.exe Debug/RemoteControl/ClipboardTest.exe Debug/RemoteControl/DisconnectTest.exe Debug/RemoteControl/DiagnosticsTest.exe Debug/WebAgent/WebAgentTest.exe Debug/Services/RemoteInitTest.exe Debug/Services/PetDiscoveryTest.exe
 
 test: $(TEST_TARGETS)
 	@for %%t in ($(TEST_TARGETS)) do (echo === %%t === && "%%t")
@@ -151,6 +151,10 @@ Debug/WebAgent/WebAgentTest.exe: Debug/WebAgent/WebAgentTest.cpp Modules/WebAgen
 # COM (network list + firewall) + NetAPI (local groups / join info).
 Debug/Services/RemoteInitTest.exe: Debug/Services/RemoteInitTest.cpp Services/RemoteInitService.cpp Services/ProcessRunner.cpp Services/FileService.cpp Core/Logger.cpp
 	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lole32 -loleaut32 -luuid -lnetapi32
+
+# Beacon codec only: the UDP worker needs NetworkService (winsock) at link time.
+Debug/Services/PetDiscoveryTest.exe: Debug/Services/PetDiscoveryTest.cpp Services/PetDiscoveryService.cpp Services/NetworkService.cpp
+	$(CXX) $(TEST_CXXFLAGS) -I. $^ -o $@ $(TEST_LIBS) -lws2_32
 
 -include $(DEPS)
 
